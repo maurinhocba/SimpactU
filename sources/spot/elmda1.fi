@@ -1,0 +1,132 @@
+ SUBROUTINE elmda1(nnode,ndime,neulr,nelem,heade,taile,iwrit)
+ !******************************************************************
+ !
+ !*** READ element DATA for truss elements
+ !
+ !******************************************************************
+ IMPLICIT NONE
+ INTEGER (kind=4), INTENT(IN) :: nnode,ndime,neulr,iwrit
+ INTEGER (kind=4), INTENT(IN OUT) :: nelem
+ TYPE(ele01), POINTER :: heade,taile
+
+ TYPE(ele01), POINTER :: elem
+ TYPE(section), POINTER :: sec
+ INTEGER (kind=4) stype,i,isec,osec,nvare,ip,nvar2,ndofn
+ LOGICAL :: found,rot,same,masing,curves,point,sys
+ INTEGER (kind=4) chnode
+
+ ! *** READ the element nodal connections, and the property numbers.
+
+ IF(iwrit == 1)WRITE(lures,"(/4x,'element  mat        node numbers'/)",ERR=9999)
+
+ osec = -1
+ DO
+   CALL listen('ELMD01')          !read a card
+   IF (exists('ENDELE')) EXIT     !if key word END_ELEMENT read, exit loop
+
+   nelem = nelem + 1         !increase element counter
+   ALLOCATE (elem)           !reserve memory for data
+   ALLOCATE (elem%lnods(nnode))  !reserve memory for nodes
+
+   elem%numel = INT (param(1))    !element label
+   isec = INT (param(2))         !associated material
+   !     check if associated material exists
+   IF( isec /= osec )THEN
+     CALL sect_search (isec,found,sec,ip)
+     IF(.NOT.found)CALL runend('ELMDA1: Invalid Section Number used')
+     stype = sec%secty       !check section type for element
+     IF( stype /= 2 ) CALL runend('ELMDA1: Invalid sect. type for SPOT ')
+     osec = isec
+     IF( nnode == 2 )THEN
+       rot = ( sec%rprop(2) > 0d0 .OR. sec%rprop(4) > 0d0 .OR.   &
+               sec%iprop(2) > 0   .OR. sec%iprop(4) > 0 ) .AND. neulr > 0
+       sys = rot .AND. sec%iprop(16) > 0
+       point  =  sec%secdef(3) < 0
+       masing =  sec%iprop(15) == 1
+       curves = (sec%iprop(1) + sec%iprop(2) + sec%iprop(5) + sec%iprop(6) + sec%iprop(9) + sec%iprop(10)) > 0
+       IF( masing .AND.  (.NOT.curves) ) &
+          CALL runend('ELMDA1: Masing rule, requires a curve  ')
+     ELSE
+       rot = .FALSE.
+       sys = .FALSE.
+     END IF
+   END IF
+   elem%matno = ip        !store section Label
+
+   nvar2 = 0
+   ndofn = ndime
+   IF( nnode == 2) THEN
+     elem%lnods(1:2) = INT (param(3:4))  !connectivities
+     same =  (elem%lnods(1) == elem%lnods(2)) .OR. (elem%lnods(2) == 0)
+     IF( same ) THEN
+       IF(iwrit == 1) WRITE(lures,"(3x,i8,i5,6i7)",ERR=9999) elem%numel,     &
+                      isec,elem%lnods(1)
+       elem%lnods(2) = 0
+
+       IF( ndime == 2 ) THEN
+         IF( rot )THEN
+           nvare = 5      !F,x0(2),M,angle
+           ndofn = ndofn + 1
+         ELSE      ! no Euler angles
+           nvare = 3      !F,x0(2)
+         END IF
+       ELSE !ndime ==3
+         IF( rot )THEN
+           nvare = 14     !F,x0(3),M,Lamb(9)
+           ndofn = ndofn + 3
+         ELSE      ! no Euler angles
+           nvare = 4      !F,x0(3)
+         END IF
+       END IF
+     ELSE    !different nodes
+       IF(iwrit == 1) WRITE(lures,"(3x,i8,i5,6i7)",ERR=9999) elem%numel,     &
+                      isec,elem%lnods(1:2)
+       IF( rot )THEN
+         nvare = 2        !F,M
+         IF( ndime == 2 ) ndofn = 3
+         IF( ndime == 3 ) ndofn = 6
+       ELSE      ! no Euler angles
+         nvare = 1        !F
+       END IF
+     END IF                        !      1         2       3      4      5     6     7
+     IF( masing ) THEN
+       IF (point) THEN
+         nvar2 = (7+21)*ndofn  !maxDist, maxForce, DirMov, Dist0,Force0,Dprev,Fprev
+       ELSE
+         nvar2 = (7+21)        !maxDist, maxForce, DirMov, Dist0,Force0,Dprev,Fprev
+       END IF
+     END IF
+   ELSE
+     nvare = 22
+     SELECT CASE (nnpar)
+     CASE(3)
+       elem%lnods = (/ INT (param(3)), 0,0,0,0,0 /)  !auxiliar node
+       IF(iwrit == 1) WRITE(lures,"(3x,i8,i5,i10)",ERR=9999) elem%numel,isec,elem%lnods(1)
+     CASE(8)
+       elem%lnods(1:nnode) = INT (param(3:8))  !connectivities
+
+       IF(iwrit == 1) WRITE(lures,"(3x,i8,i5,6i7)",ERR=9999) elem%numel,isec,elem%lnods
+     CASE(9)
+       elem%lnods(1:nnode) = INT (param(3:8))  !connectivities
+       i = INT(param(9))
+       IF(iwrit == 1) WRITE(lures,"(3x,i8,i5,6i7,i10)",ERR=9999) elem%numel,isec,elem%lnods,i
+       i = chnode(i)
+       elem%numel = - i
+     END SELECT
+   END IF
+   ALLOCATE (elem%gausv(nvare+nvar2))
+
+   elem%gausv = 0d0                     !initializes
+   elem%rot   = rot
+
+   !     original nodes are changed
+   DO i=1,nnode
+     IF( elem%lnods(i) > 0 ) elem%lnods(i) = chnode(elem%lnods(i))
+   END DO
+
+   CALL add_ele01e (elem, heade, taile) !add element to list
+ END DO
+
+ RETURN
+ 9999 CALL runen2('')
+ END SUBROUTINE elmda1
