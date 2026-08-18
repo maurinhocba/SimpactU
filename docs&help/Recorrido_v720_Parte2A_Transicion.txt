@@ -1,0 +1,166 @@
+================================================================================
+PARTE 2-A DEL RECORRIDO POR V720 - TRANSICIÓN Y SELECCIÓN DE ESTRATEGIA
+(LÍNEAS 42-68)
+================================================================================
+
+📌 OBJETIVO DE ESTA PARTE:
+   Entender la transición entre inicialización y cálculos iniciales,
+   incluyendo la selección de estrategia numérica (EXPLCT, IMPLICIT, etc.)
+
+--------------------------------------------------------------------------------
+LÍNEAS 42-47: INICIO DEL BUCLE SOBRE ESTRATEGIAS
+--------------------------------------------------------------------------------
+
+DO % endless over strategies
+   │
+   ├─→ Este bucle recorre TODAS las estrategias disponibles en el solver
+   │
+   ├─→ Comentario (línea 44-46):
+   │      Si actio no es NEW ni RESTAR → podría ser NSTRA0 o MESHMO
+   │      En ese caso se llamaría a newstr() para verificar ACTIO & PTYPE
+   │
+   └─→ Selecciona la estrategia activa mediante SELECT CASE (ptype)
+
+📋 ESTRATEGIAS DISPONIBLES EN SIMPACT:
+  • EXPLCT  → Integración temporal EXPLÍCITA (explicit time integration)
+             - Calculos paso a paso sin matriz global
+             - Menor costo computacional por paso
+             - Requiere paso temporal pequeño para estabilidad
+  
+  • IMPLICIT → Integración temporal IMPLÍCITA
+               - Resuelve sistema lineal cada paso
+               - Permite paso temporal más grande
+               - Mayor costo pero más estable
+  
+  • WIND    → Análisis de cargas wind-only (sin acoplamiento estructural)
+
+--------------------------------------------------------------------------------
+LÍNEAS 48-67: SELECT CASE POR ESTRATEGIA EXPLCT
+--------------------------------------------------------------------------------
+
+SELECT CASE (ptype)
+  │
+  ├─→ La variable ptype indica QUÉ estrategia numérica usar
+  │
+  └─→ CASE ("EXPLCT") → Integración explícita temporal
+  
+      SELECT CASE (actio)
+        │
+        ├─→ ¿Qué tipo de problema? (NEW, NSTRA0, NSTRA2, RESTAR)
+        │
+        └─→ CASE ('NEW','NSTRA0','NSTRA2')
+              │
+              ├─→ Para problemas NUEVOS o con nueva estrategia:
+              │
+              │  CALL data_inp()
+              │  │   → Lee datos de entrada (input files)
+              │  │   → Parsea parámetros del problema
+              │  │   → Inicializa estructuras de datos
+              │
+              │  CALL contol(actio)
+              │  │   → Establece variables lógicas de control AERO
+              │  │   → Configura flags para cálculos aeroelásticos
+              │
+
+              IF (aero .AND. actio=='NEW')
+              │   │
+              │   ├─→ Solo en problemas NUEVOS con componente aero:
+              │   │
+              │   │  CALL aero_data()
+              │   │  │   → Lee datos aerodinámicos (tablas airfoil, coeficientes)
+              │   │  │   → Inicializa matrices de acoplamiento FSI
+              │   │
+              │   │  CALL Input_simulation()
+              │   │  │   → Define condiciones de simulación
+              │   │  │   → Establece velocidad del viento, turbulencia, etc.
+              │   │
+              │   │  CALL Input_extras()
+              │   │  │   → Datos adicionales (geometría, materiales)
+              │   │
+              │   │  CALL Input_geometry()
+              │   │  │   → Define geometría del rotor y estructura
+              │   │
+              │   │  CALL Alloc()
+              │   │  │   → ALLOC usa información de INPUT_SIMULATION
+              │   │  │   → Reserva memoria para arrays y matrices
+              │   │  │   → Crea estructuras de datos necesarias
+              │   │
+
+              │   IF (bEType=='NBST') THEN % shell model for blades
+              │   │   │
+              │   │   ├─→ Si el modelo de aspas es SHELL:
+              │   │   │
+              │   │   │  CALL Input_bed()
+              │   │   │  │   → Lee datos BED (Blade Element Data)
+              │   │   │  │   → Geometría detallada de las aspas
+              │   │   │
+              │   │   └─→ FIN IF bEType=='NBST'
+              │
+
+              │  % LÍNEAS COMENTARIADAS (NOT IN USE):
+              │     % CALL rdwind()       → Lectura de datos wind (no usado)
+              │     % CALL rdctrl()      → Lectura de controles (no usado)
+              │     % CALL gener_inp()   → Generación de input (no usado)
+
+              └─→ FIN SELECT CASE (actio)
+                  │
+                  └─→ FIN SELECT CASE (ptype)
+
+--------------------------------------------------------------------------------
+RESUMEN DE LA PARTE 2-A:
+--------------------------------------------------------------------------------
+
+✅ LO QUE OCURRE EN ESTE BLOQUE:
+   1. Entramos en bucle sobre estrategias numéricas disponibles
+   2. Seleccionamos la estrategia activa mediante ptype (EXPLCT, IMPLICIT, etc.)
+   3. Para EXPLCT + problema NUEVO/NSTRA0:
+      - Llamamos a data_inp() para leer datos de entrada
+      - Configuramos control aeroelástico con contol(actio)
+      - Si es nuevo y aero: cargamos aerodinámica (aero_data)
+      - Leemos simulación (Input_simulation), extras (Input_extras)
+      - Definimos geometría (Input_geometry)
+      - Reservamos memoria con Alloc() usando info de Input_simulation
+      - Si modelo SHELL: leemos datos BED (Input_bed)
+
+⚠️ PUNTO CRÍTICO A ENTENDER:
+   • ptype determina QUÉ estrategia numérica usar (EXPLCT, IMPLICIT, WIND)
+   • actio controla QUÉ tipo de problema (NEW, NSTRA0, RESTAR)
+   • La combinación de ambos dicta qué funciones se llaman
+   • Para EXPLCT + NEW: carga completa de datos aerodinámicos y memoria
+
+📝 NOTAS IMPORTANTES:
+   • Las llamadas rdwind(), rdctrl(), gener_inp() están comentadas (no usadas)
+   • Alloc() depende críticamente de INPUT_SIMULATION para reservar memoria correcta
+   • El modelo SHELL requiere datos BED adicionales para geometría detallada
+
+--------------------------------------------------------------------------------
+LÍNEA 68: TRANSICIÓN A CÁLCULOS INICIALES
+--------------------------------------------------------------------------------
+
+%======= Initial calculations ===================================
+│
+├─→ Esta línea marca el inicio de los Cálculos Iniciales
+│
+└─→ Aquí es donde se realizan los cálculos aeroelásticos principales
+    antes de entrar en el bucle temporal dinámico
+
+📌 LO QUE HICERON LAS LÍNEAS 42-68:
+   • Establecieron el contexto numérico (qué estrategia usar)
+   • Cargaron todos los datos necesarios para la simulación
+   • Reservaron memoria para matrices y vectores aeroelásticos
+   • Prepararon el terreno para los cálculos iniciales propiamente dichos
+
+--------------------------------------------------------------------------------
+SIGUIENTE PASO (LÍNEA 69+):
+--------------------------------------------------------------------------------
+
+La línea 68 marca el inicio de "Initial calculations" donde:
+- Se llama a initial_comp() para cálculos aeroelásticos iniciales
+- Si es aerodinámico y nuevo: inicialización de interfaz FSI
+- Definición de referencias geométricas (longitudes, áreas)
+- Coordenadas locales de aspas
+- Coordenadas globales de nodos aerodinámicos
+- Coordenadas de Control Points (CP)
+- Bucle sobre pares de elementos estructura-aerodinámica
+
+================================================================================

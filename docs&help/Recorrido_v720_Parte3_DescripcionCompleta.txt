@@ -1,0 +1,298 @@
+================================================================================
+PARTE 3 DEL RECORRIDO POR V720 - ANÁLISIS DINÁMICO PASO A PASO
+(CORAZÓN DEL CÁLCULO)
+================================================================================
+
+📌 DESCRIPCIÓN GENERAL:
+   La Parte 3 es donde ocurren los cálculos aeroelásticos reales en cada
+   paso temporal de la simulación. Es el "CORAZÓN" del solver donde se
+   implementa el acoplamiento fluido-estructura dinámico.
+
+--------------------------------------------------------------------------------
+OBJETIVO DE ESTA PARTE:
+   Simular la respuesta dinámica del rotor a cargas aerodinámicas cambiantes
+   mediante un bucle temporal que actualiza en cada iteración:
+   • Posiciones estructurales (desplazamientos)
+   • Cargas aerodinámicas (fuerzas, momentos)
+   • Campo de estela (wake)
+   • Paso temporal crítico
+
+--------------------------------------------------------------------------------
+ESTRUCTURA GENERAL DEL BUCLE TEMPORAL:
+================================================================================
+
+  SIMULACIÓN DINÁMICA v720
+    │
+    ├─→ DO % endless over time steps [BUCLE PRINCIPAL SOBRE TIEMPO]
+    │     │
+    │     ├─→ Cada iteración representa un instante temporal (t = t + dtime)
+    │     │
+    │     └─→ Dentro del bucle:
+    │
+    │         IF (aero) % Solo en pasos con componente aerodinámico
+    │           │
+    │           ├─→ ¿Nueva etapa aeroelástica? (nest==numnest)
+    │           │    │
+    │           │    ├─→ SÍ → Nueva etapa: inicializar y calcular todo
+    │           │    │       │
+    │           │    │       ├─→ Resetear contador de etapas (nest = 0)
+    │           │    │       ├─→ CALL inter_kin() [Cinemática Interfaz]
+    │           │    │       └─→ Llenar matriz RHS1 + RHS2 (fuerzas externas)
+    │           │    │
+    │           │    └─→ NO → Continuar con cálculo aeroelástico parcial
+    │
+
+    │         ├─→ CALL NLUVLM_Calc() [Cálculo Aeroelástico]
+    │         │    │
+    │         │    ├─→ Calcula fuerzas aerodinámicas en Control Points
+    │         │    └─→ Obtiene vectores normales (CP_normal)
+    │
+
+    │         ├─→ CALL A_matrix() [Construcción Matriz Aeroelástica]
+    │         │    │
+    │         │    ├─→ Construye matriz global del sistema aeroelástico
+    │         │    ├─→ A*G = RHS (sistema lineal de acoplamiento FSI)
+    │         │    └─→ Incluye grados de libertad estructurales y aerodinámicos
+    │
+
+    │         ├─→ CALL DGESV() [Resolución Sistema Lineal]
+    │         │    │
+    │         │    ├─→ Resuelve sistema A*G = RHS para obtener desplazamientos
+    │         │    └─→ G contiene desplazamientos estructurales y aerodinámicos
+    │
+
+    │         ├─→ CALL Segment_properties() [Propiedades de Segmentos]
+    │         │    │
+    │         │    └─→ Calcula vorticidad de segmentos para estela
+    │
+    │         ├─→ CALL Loads() [Cargas Aerodinámicas]
+    │         │    │
+    │         │    ├─→ Calcula fuerzas aerodinámicas en cada panel
+    │         │    └─→ Integra fuerzas sobre aspas para obtener cargas totales
+    │
+
+    │         ├─→ CALL DtCalc(.TRUE.) [Ajuste Paso Temporal]
+    │         │    │
+    │         │    ├─→ Actualiza paso temporal (DeltaT)
+    │         │    ├─→ Ajusta por convergencia aeroelástica (incdlt)
+    │         │    └─→ Mantiene estabilidad numérica en cada paso
+    │
+
+    │         ├─→ CALL Convect() [Convección Estela]
+    │         │    │
+    │         │    ├─→ Actualiza posiciones de nodos de estela
+    │         │    └─→ Transporta vorticidad por el campo de flujo
+    │
+
+    │         ├─→ Calculo fuerzas y momentos totales
+    │         │
+    │         └─→ Fin iteración aeroelástica: IF ENDIF
+    │
+
+    │     └─→ Incremento contador de pasos (istep = istep + 1)
+
+================================================================================
+
+📊 DETALLE DE CADA SUB-RUTINA CLAVE:
+
+--------------------------------------------------------------------------------
+1. CALL dynamic() [Entrada al Análisis Dinámico]
+--------------------------------------------------------------------------------
+   • Activa el análisis dinámico vs estático
+   • Inicializa contadores de pasos temporales
+   • Configura criterios de terminación (endst)
+
+--------------------------------------------------------------------------------
+2. CALL inter_kin() [Cinemática Interfaz Fluido-Estructura]
+--------------------------------------------------------------------------------
+   • Actualiza coordenadas de nodos acoplados
+   • Transforma entre sistemas estructurales y aerodinámicos
+   • Mantiene consistencia geométrica en interfaz FSI
+
+--------------------------------------------------------------------------------
+3. CALL NLUVLM_Calc() [Cálculo Aeroelástico No-Lineal]
+--------------------------------------------------------------------------------
+   • Calcula fuerzas aerodinámicas en Control Points (CP)
+   • Usa tablas airfoil para coeficientes CL, CD
+   • Considera ángulo de ataque dinámico
+
+--------------------------------------------------------------------------------
+4. CALL CP_normal() [Vectores Normales en Control Points]
+--------------------------------------------------------------------------------
+   • Calcula vectores normales a superficies aerodinámicas
+   • Necesarios para integrar presiones sobre áreas proyectadas
+
+--------------------------------------------------------------------------------
+5. CALL RHS1_vector() [Vector Fuerzas Externas - Flujo Libre]
+--------------------------------------------------------------------------------
+   • Construye lado derecho del sistema aeroelástico (RHS)
+   • Incluye fuerzas por flujo libre (free stream velocity)
+   • No depende de desplazamientos estructurales
+
+--------------------------------------------------------------------------------
+6. CALL FixConvect() [Corrección Convección Estela]
+--------------------------------------------------------------------------------
+   • Actualiza coordenadas de nodos de estela en borde de salida
+   • Corrige posiciones de la estela trasera (trailing edge)
+
+--------------------------------------------------------------------------------
+7. CALL RHS2_vector() [Vector Fuerzas Estela]
+--------------------------------------------------------------------------------
+   • Construye contribución de la estela al RHS
+   • Incluye efectos inducidos por vorticidad transportada
+
+--------------------------------------------------------------------------------
+8. CALL A_matrix() [Matriz Aeroelástica Global]
+--------------------------------------------------------------------------------
+   • Construye matriz completa del sistema aeroelástico
+   • Combina rigidez estructural con aerodinámica no-lineal
+   • Formato: A*G = RHS (sistema lineal implícito)
+
+--------------------------------------------------------------------------------
+9. CALL DGESV() [Resolución Sistema Lineal]
+--------------------------------------------------------------------------------
+   • Resolver sistema A*G = RHS usando algoritmo Gauss-Seidel
+   • G contiene desplazamientos estructurales y aerodinámicos
+   • Resultado: posiciones actualizadas de todos los nodos
+
+--------------------------------------------------------------------------------
+10. CALL Segment_properties() [Propiedades de Segmentos]
+--------------------------------------------------------------------------------
+    • Calcula propiedades geométricas de segmentos de estela
+    • Determina vorticidad en cada segmento
+    • Prepara datos para transporte convectivo
+
+--------------------------------------------------------------------------------
+11. CALL Loads() [Cargas Aerodinámicas Totales]
+--------------------------------------------------------------------------------
+    • Integra fuerzas aerodinámicas sobre cada panel
+    • Calcula fuerzas totales por aspa (Fx, Fy, Fz)
+    • Calcula momentos totales sobre rotor (Mx, My, Mz)
+
+--------------------------------------------------------------------------------
+12. CALL DtCalc(.TRUE.) [Ajuste Paso Temporal Crítico]
+--------------------------------------------------------------------------------
+    • Actualiza paso temporal (DeltaT) basado en:
+      - Convergencia aeroelástica actual
+      - Estabilidad numérica observada
+    • Llama a incdlt() para reducir dtime si necesario
+    • Mantiene dtime < dt_critical para estabilidad
+
+--------------------------------------------------------------------------------
+13. CALL Convect() [Transporte Convectivo Estela]
+--------------------------------------------------------------------------------
+    • Actualiza posiciones de nodos de estela en flujo
+    • Transporta vorticidad por campo de velocidad
+    • Implementa método de transporte numérico (Lagrangiano)
+
+--------------------------------------------------------------------------------
+14. Llamadas a Gestión de Archivos (TecPlot Output):
+--------------------------------------------------------------------------------
+    • inter_tp2() → Imprime grid aerodinámico en TecPlot
+    • inter_tp6() → Imprime malla estructural en TecPlot
+    • inter_tp4() → Imprime fuerzas por panel en TecPlot
+
+--------------------------------------------------------------------------------
+15. Llamadas a Registro Aeroelástico:
+--------------------------------------------------------------------------------
+    • introut_mng('panelForces') → root.PF.dat (fuerzas por panel)
+    • introut_mng('frcesMomets') → root.FM.dat (fuerzas totales, momentos)
+    • introut_mng('dtime') → root.AR.dat (tabla de paso temporal)
+    • introut_mng('aerodynTime') → root.AT.dat (tiempo de cálculo aero)
+
+--------------------------------------------------------------------------------
+16. Actualización Acumulada:
+--------------------------------------------------------------------------------
+    • resid = resid - loa [Resta cargas aerodinámicas al residuo estructural]
+    • ttime = ttime + dtime [Actualiza tiempo simulado]
+    • n = n + 1 [Incrementa contador de etapas aeroelásticas]
+
+--------------------------------------------------------------------------------
+17. Llamada Final: Time Integration (comentada)
+--------------------------------------------------------------------------------
+    • CALL explit() → Integración temporal explícita (no usado actualmente)
+    • Actualiza matriz de masa lumped si existen nodos dependientes
+    • Actualiza vector de fuerzas y propiedades de masa
+
+--------------------------------------------------------------------------------
+18. Dumping de Archivos (Restart Files):
+--------------------------------------------------------------------------------
+    • dumpin() → Datos aerodinámicos generales
+    • dumpin_structuresa() → Estructura aeroelástica
+    • dumpin_arraysa() → Arrays de datos aeroelásticos
+    • dumpin_aeroout() → Salida aerodinámica
+    • dumpin_win() → Interfaz gráfica
+    • dumpin_inter() → Interfaz FSI
+    • dumpin_introut() → Entrada/salida interna
+    • dumpin_struout() → Salida estructural
+
+================================================================================
+
+🎯 PUNTO CRÍTICO: CONVERGENCIA AEROELÁSTICA
+
+Dentro de cada paso temporal, puede haber múltiples iteraciones aeroelásticas:
+  nest = contador de iteraciones aeroelásticas en un paso
+  numnest = número máximo de iteraciones permitidas
+  
+Si nest < numnest → Se realizan iteraciones internas para convergencia
+Si nest == numnest → Nueva etapa aeroelástica (resetear y recalcular)
+
+Esto es importante porque:
+- La aerodinámica depende de la deformación estructural
+- La estructura responde a las cargas aerodinámicas
+- Deben converger en cada paso temporal para solución acoplada
+
+================================================================================
+
+📋 FLOWCHART DEL BUCLE TEMPORAL:
+
+  INICIO PASO TEMPORAL (t)
+    │
+    ├─→ ¿Nueva etapa aeroelástica? (nest==numnest)
+    │    │
+    │    ├─→ SÍ → Resetear y re-inicializar todo
+    │    │       └─→ Nest = 0, recalcular RHS1, RHS2
+    │    │
+    │    └─→ NO → Continuar con cálculo parcial
+    │
+    ├─→ CALL inter_kin() [Cinemática FSI]
+    ├─→ CALL NLUVLM_Calc() [Fuerzas aerodinámicas en CPs]
+    ├─→ Construir A_matrix() [Matriz global aeroelástica]
+    ├─→ CALL DGESV() [Resolver sistema lineal]
+    ├─→ CALL Segment_properties() [Propiedades estela]
+    ├─→ CALL Loads() [Cargas totales]
+    ├─→ CALL DtCalc(.TRUE.) [Ajustar paso temporal]
+    │    └─→ incdlt() si necesario (reducir dtime)
+    ├─→ CALL Convect() [Transportar estela]
+    ├─→ Incrementar contadores (n, nest, istep)
+    ├─→ Actualizar tiempo (ttime = ttime + dtime)
+    │
+    └─→ ¿Criterio de terminación alcanzado?
+         │
+         ├─→ SÍ → Guardar archivos y terminar
+         └─→ NO → Volver al inicio del bucle temporal
+
+================================================================================
+
+📌 RESUMEN DE LA PARTE 3:
+
+✅ LO QUE OCURRE AQUÍ:
+   1. Se realiza el análisis dinámico real paso a paso en el tiempo
+   2. En cada iteración se calculan fuerzas aerodinámicas y respuestas estructurales
+   3. Se resuelve el sistema aeroelástico acoplado (A*G = RHS)
+   4. La estela se transporta convectivamente por el campo de flujo
+   5. El paso temporal se ajusta dinámicamente para estabilidad numérica
+   6. Se generan archivos de salida con fuerzas, momentos y datos de estela
+
+⚠️ PUNTO CRÍTICO:
+   Este es el "CORAZÓN DEL CÁLCULO" donde ocurre todo el acoplamiento
+   fluido-estructura dinámico en tiempo real. Cada iteración representa
+   un instante físico donde la aspa se ha deformado y las cargas
+   aerodinámicas han cambiado según esa nueva configuración.
+
+🎯 IMPORTANCIA:
+   Sin este bucle temporal, solo tendríamos análisis estático (un solo
+   instante en el tiempo). Con este bucle, simulamos la respuesta
+   dinámica completa del rotor a condiciones de viento cambiantes.
+
+================================================================================

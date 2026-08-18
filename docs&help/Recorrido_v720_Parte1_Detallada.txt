@@ -1,0 +1,138 @@
+================================================================================
+PARTE 1 DEL RECORRIDO POR V720 - INICIALIZACIÓN Y FLUJO INICIAL
+================================================================================
+
+📌 OBJETIVO DE ESTA PARTE:
+   Entender cómo inicializa la simulación v720 según el tipo de problema
+   y establece el bucle sobre estrategias de cálculo.
+
+--------------------------------------------------------------------------------
+LÍNEAS ORIGINALES 1-4: ENCABEZADO DEL ARCHIVO
+--------------------------------------------------------------------------------
+% Recorrido por v720 - ¿Dónde se hacen cálculos aero. en una simulación?
+%   Este archivo explica paso a paso dónde ocurren los cálculos aeroelásticos
+
+--------------------------------------------------------------------------------
+LÍNEAS ORIGINALES 5-19: PARÁMETRO "actio" - TIPO DE PROBLEMA
+--------------------------------------------------------------------------------
+
+% actio = parámetro que indica QUÉ tipo de problema vamos a resolver
+% Se asigna en la función beginp (beginning of problem)
+
+📊 VALORES POSIBLES DE "actio":
+  • NEW     → Nuevo problema (primera vez que se ejecuta)
+  • RESTAR  → Reiniciar problema antiguo (sin cambios o cambios menores)
+  • NSTRA0  → Reiniciar con nueva estrategia (mismo problema, diferente método)
+            (puede ocurrir en la misma ejecución de Simpact)
+  
+% Posibles extensiones futuras:
+  • NSTRA1  → Nueva estrategia cambiando condiciones de contorno (sin cambiar nodos)
+  • NSTRA2  → Nueva estrategia cambiando nodos Y condiciones de contorno
+  • STOP    → Detener el programa
+  • MESHMO  → Modificaciones de malla en el paso temporal
+
+% En la versión aeroelástica actual se usan: NEW, RESTAR, NSTRA0 o STOP
+
+--------------------------------------------------------------------------------
+LÍNEAS ORIGINALES 20-39: LÓGICA DE INICIALIZACIÓN SEGÚN "actio"
+--------------------------------------------------------------------------------
+
+📋 FLOWCHART PRINCIPAL:
+
+  SIMPACT (programa principal)
+    │
+    ├─→ ¿actio == 'NEW'?
+    │    │
+    │    ├─→ SÍ → Nada más (inicialización básica)
+    │    │
+    │    └─→ NO (es RESTAR o NSTRA0)
+    │         │
+    │         └─→ CALL restar() [función de reinicio]
+    │              │
+    │              ├─→ ¿Es problema aeroelástico? (IF aero)
+    │              │    │
+    │              │    ├─→ CALL restar_structuresa   → Reinicia estructura aerodinámica
+    │              │    ├─→ CALL restar_arraysa       → Reinicia arrays de datos aeroelásticos
+    │              │    ├─→ CALL restar_aeroout       → Reinicia salida aerodinámica
+    │              │    ├─→ CALL restar_win           → Reinicia ventanas/interfaz
+    │              │    │
+    │              │    └─→ (opcional futuro) CALL restar_gen
+    │              │         │
+    │              │         ├─→ CALL restar_inter           → Reinicia interacción fluido-estructura
+    │              │         ├─→ CALL restar_introut         → Reinicia entrada/salida interna
+    │              │         │
+    │              │         └─→ (opcional futuro) CALL restar_mastrnods
+    │              │              │
+    │              │              ├─→ CALL restar_struout    → Reinicia salida estructural
+    │              │              │
+    │              │              └─→ CALL inter_out('openFiles')
+    │              │                   │
+    │              │                   ├─→ ¿actio == 'NEW' O actio == 'RESTAR'?
+    │              │                   │    │
+    │              │                   │    ├─→ SÍ → Escribir outputRoot, outputRootLen (raíz de salida)
+    │              │                   │    │
+    │              │                   │    └─→ NO → Saltar esta parte
+    │              │                   │
+    │              │                   └─→ Abrir archivos de entrada/salida
+    │              │                        │
+    │              │                        └─→ ¿actio == 'NEW'?
+    │              │                           │
+    │              │                           ├─→ SÍ → Escribir encabezados de archivos
+    │              │                           │
+    │              │                           └─→ NO → Saltar esta parte
+    │              │
+    │              └─→ FIN de CALL restar()
+    │
+    └─→ FIN de IF-ELSE inicial
+
+📝 DETALLE DE CADA FUNCIÓN "restar_*":
+  • restar_structuresa    → Reinicia datos de estructura aerodinámica (masas, rigidez, modos)
+  • restar_arraysa        → Reinicia arrays de almacenamiento aeroelástico (matrices, vectores)
+  • restar_aeroout        → Reinicia archivos de salida aerodinámica (fuerzas, presiones)
+  • restar_win            → Reinicia ventanas de visualización o interfaz gráfica
+  • restar_inter          → Reinicia módulo de acoplamiento fluido-estructura (FSI)
+  • restar_introut        → Reinicia módulos de entrada/salida internos del solver
+  • restar_struout       → Reinicia salida de datos estructurales (desplazamientos, tensiones)
+
+--------------------------------------------------------------------------------
+LÍNEAS ORIGINALES 42-43: INICIO DEL BUCLE SOBRE ESTRATEGIAS
+--------------------------------------------------------------------------------
+
+DO % endless over strategies
+  │
+  ├─→ Este bucle recorre TODAS las estrategias de cálculo aeroelástico
+  │   disponibles en el solver (por ejemplo: EXPLCT, IMPLICIT, WIND)
+  │
+  ├─→ Dentro del bucle se selecciona la estrategia activa mediante ptype
+  │
+  └─→ Se inicializa los datos específicos de esa estrategia
+
+📋 ESTRATEGIAS TÍPICAS EN SIMPACT:
+  • EXPLCT  → Integración temporal explícita (calculos paso a paso, sin matriz global)
+  • IMPLICIT → Integración implícita (resuelve sistema lineal cada paso)
+  • WIND    → Análisis de cargas wind-only (sin acoplamiento estructural)
+
+--------------------------------------------------------------------------------
+RESUMEN DE LA PARTE 1:
+--------------------------------------------------------------------------------
+
+✅ LO QUE OCURRE EN ESTE FLUJO INICIAL:
+   1. Detectamos qué tipo de problema es (NEW, RESTAR o NSTRA0)
+   2. Si es reinicio (RESTAR/NSTRA0), llamamos a funciones específicas para
+      reiniciar cada módulo del solver
+   3. Abrimos archivos de entrada/salida y escribencabezados si es nuevo
+   4. Entramos en bucle sobre estrategias para procesar cada una
+
+⚠️ PUNTO CRÍTICO A ENTENDER:
+   • "actio" determina el flujo de inicialización
+   • "restar_*" son funciones de reinicio que limpian y re-inician cada módulo
+   • El bucle sobre estrategias permite ejecutar múltiples métodos en una sola simulación
+
+--------------------------------------------------------------------------------
+SIGUIENTE PASO (LÍNEAS 48+):
+--------------------------------------------------------------------------------
+
+Dentro del bucle "DO", el código selecciona la estrategia activa mediante ptype
+y ejecuta los cálculos específicos para cada método numérico.
+
+================================================================================

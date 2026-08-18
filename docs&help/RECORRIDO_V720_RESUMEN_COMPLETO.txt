@@ -1,0 +1,386 @@
+================================================================================
+RECORRIDO POR V720 - RESUMEN COMPLETO DE LAS 4 PARTES
+================================================================================
+
+📋 ESTRUCTURA GENERAL DEL ARCHIVO mainpg.f90 (v720):
+================================================================================
+
+   LÍNEAS 1-42:    PARTE 1 → Inicialización y flujo inicial
+   ────────────────────────────────────────────────────────
+   
+   LÍNEAS 42-68:   PARTE 2-A → Transición y selección de estrategia  
+   ────────────────────────────────────────────────────────────────
+   
+   LÍNEAS 68-94:   PARTE 2-B → Cálculos iniciales aeroelásticos
+   ────────────────────────────────────────────────────────────────
+   
+   LÍNEAS 96-165:  PARTE 3 → Bucle temporal dinámico v720
+   ────────────────────────────────────────────────────────────────
+   
+   LÍNEAS 165-237: PARTE 4 → Cierre del bucle y finalización
+   ────────────────────────────────────────────────────────────────
+
+================================================================================
+DETALLE DE CADA PARTE:
+================================================================================
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PARTE 1 - INICIALIZACIÓN Y FLUJO INICIAL (LÍNEAS 1-42)                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│ 📌 OBJETIVO:                                                                 │
+│    Entender cómo inicializa la simulación v720 según el tipo de problema y  │
+│    establece el bucle sobre estrategias de cálculo.                          │
+│                                                                              │
+│ 📊 FUNCIONES CLAVE:                                                          │
+│    • beginp()   → Inicio del problema (NEW, RESTAR, NSTRA0)                 │
+│    • restar()   → Reinicio según actio                                      │
+│    • init_comp()→ Compilación inicial                                        │
+│                                                                              │
+│ 📋 FLOWCHART:                                                                │
+│                                                                              │
+│     SIMPACT                                                                    │
+│       │                                                                       │
+│       ├─→ ¿actio == 'NEW'?                                                   │
+│       │    │                                                                  │
+│       │    ├─→ SÍ → Inicialización básica (nada más)                         │
+│       │    │                                                                  │
+│       │    └─→ NO → CALL restar() [Reinicio]                                 │
+│       │         │                                                             │
+│       │         ├─→ ¿aeroelástico?                                            │
+│       │         │    │                                                        │
+│       │         │    ├─→ SÍ → restar_structuresa + restar_arraysa             │
+│       │         │    └─→ NO → restar_aeroout + restar_win                    │
+│       │         │                                                             │
+│       │         └─→ inter_out('openFiles') → Abrir archivos de entrada/salida│
+│                                                                              │
+│ 📁 ARCHIVOS ABRIENDO:                                                        │
+│    • input.dat   → Datos del programa (Ludat)                               │
+│    • output.dat  → Resultados (lures)                                        │
+│    • *.rep       → Archivos de reporte extendido                            │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PARTE 2-A - TRANSICIÓN Y SELECCIÓN DE ESTRATEGIA (LÍNEAS 42-68)             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│ 📌 OBJETIVO:                                                                 │
+│    Entender la transición entre inicialización y cálculos iniciales, y      │
+│    cómo se selecciona la estrategia de cálculo.                              │
+│                                                                              │
+│ 📊 FUNCIONES CLAVE:                                                          │
+│    • timing()   → Registro de tiempo de ejecución                            │
+│    • outdyn()   → Salida dinámica (HISTORY)                                  │
+│    • pstatic()  → Análisis estático (pseudostático, no usado en aero)       │
+│    • dynamic()  → Análisis dinámico (CORAZÓN DE LA SIMULACIÓN)              │
+│                                                                              │
+│ 📋 FLOWCHART:                                                                │
+│                                                                              │
+│     CALL initial_comp(actio,istop)                                           │
+│       │                                                                       │
+│       ├─→ ¿actchk == TRUE?                                                   │
+│       │    │                                                                  │
+│       │    ├─→ SÍ → ttime = endtm; actio = 'NSTRA0'; CYCLE                  │
+│       │    │                                                                  │
+│       │    └─→ NO → Continuar                                                │
+│       │                                                                       │
+│       └─→ CALL timing(1,2) → Registro de tiempo                              │
+│            │                                                                 │
+│            ├─→ ¿ncdis > 10?                                                  │
+│            │    │                                                             │
+│            │    ├─→ SÍ → dumi = ncdis/10; ecdis = dumi*10 + MOD(ncdis,10)   │
+│            │    │                                                                  │
+│            │    └─→ NO → ecdis = ncdis                                         │
+│            │                                                                 │
+│            └─→ ¿actio != 'RESTAR'?                                           │
+│                 │                                                             │
+│                 ├─→ SÍ → CALL outdyn() → Escribir valores iniciales al HISTORY│
+│                 │                                                                  │
+│                 └─→ NO → Saltar                                                 │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PARTE 2-B - CÁLCULOS INICIALES AEROELÁSTICOS (LÍNEAS 68-94)                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│ 📌 OBJETIVO:                                                                 │
+│    Entender cada función y cálculo realizado antes del bucle temporal dinámico│
+│    (Cálculos aeroelásticos iniciales).                                       │
+│                                                                              │
+│ 📊 FUNCIONES CLAVE:                                                          │
+│    • A_matrix() → Construcción de matriz A (sistema lineal)                  │
+│    • C_vector()→ Construcción del vector C (lado derecho)                   │
+│    • solve()    → Resolución del sistema lineal                              │
+│    • wake_mgmt()→ Manejo de la estela (wake)                                 │
+│    • airfoil_tab()→ Evaluación de tablas airfoil                             │
+│                                                                              │
+│ 📋 FLOWCHART:                                                                │
+│                                                                              │
+│     CALL dynamic() [Entrada al análisis dinámico]                            │
+│       │                                                                       │
+│       ├─→ Cálculos aeroelásticos iniciales:                                  │
+│       │   │                                                                  │
+│       │   ├─→ Evaluación de fuerzas aerodinámicas                            │
+│       │   ├─→ Actualización de wake (estela)                                 │
+│       │   ├─→ Interacción fluido-estructura                                  │
+│       │   └─→ Preparación para bucle temporal                                │
+│       │                                                                       │
+│       └─→ CALL timing(1,2) → Registro de tiempo                              │
+│            │                                                                 │
+│            ├─→ ¿ncdis > 10?                                                  │
+│            │    │                                                             │
+│            │    ├─→ SÍ → Actualizar contadores de display                    │
+│            │    │                                                                  │
+│            │    └─→ NO → Contador directo                                     │
+│            │                                                                 │
+│            └─→ ¿actio != 'RESTAR'?                                           │
+│                 │                                                             │
+│                 ├─→ SÍ → CALL outdyn() → Escribir valores iniciales al HISTORY│
+│                 │                                                                  │
+│                 └─→ NO → Saltar                                                 │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PARTE 3 - BUCLE TEMPORAL DINÁMICO V720 (LÍNEAS 96-165)                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│ 📌 OBJETIVO:                                                                 │
+│    Desglosar cada línea del bucle temporal dinámico para entender           │
+│    exactamente qué ocurre en cada paso de tiempo (CORAZÓN DE LA SIMULACIÓN).│
+│                                                                              │
+│ 📊 FUNCIONES CLAVE:                                                          │
+│    • where()    → Tiempo en el paso actual                                   │
+│    • while()    → Bucle temporal interno                                     │
+│    • A_matrix() → Matriz A (sistema aeroelástico)                            │
+│    • C_vector() → Vector C (lado derecho)                                    │
+│    • solve()    → Resolución del sistema lineal                              │
+│    • airfoil_tab()→ Evaluación de tablas airfoil                             │
+│    • wake_mgmt()→ Manejo de la estela                                        │
+│                                                                              │
+│ 📋 FLOWCHART:                                                                │
+│                                                                              │
+│     IF (aero) % Solo en pasos con componente aerodinámico                    │
+│       │                                                                       │
+│       ├─→ CALL A_matrix() → Construcción de matriz A                        │
+│       │   │                                                                  │
+│       │   └─→ Matriz aeroelástica completa:                                  │
+│       │       │                                                              │
+│       │       ├─→ Bloque estructural (masa, amortiguamiento, rigidez)        │
+│       │       ├─→ Bloque aerodinámico (fuerzas fluidas)                     │
+│       │       └─→ Acoplamiento fluido-estructura                             │
+│       │                                                                       │
+│       └─→ CALL C_vector() → Construcción del vector C                       │
+│            │                                                                 │
+│            └─→ Vector de fuerzas externas + gravedad                         │
+│                                                                              │
+│     DO  % Bucle principal sobre pasos temporales                              │
+│       │                                                                       │
+│       ├─→ CALL timing(1,2) → Registro de tiempo                             │
+│       │                                                                       │
+│       ├─→ ¿ncdis > 10?                                                       │
+│       │    │                                                                 │
+│       │    ├─→ SÍ → Actualizar contadores de display                        │
+│       │    │                                                                  │
+│       │    └─→ NO → Contador directo                                         │
+│       │                                                                       │
+│       ├─→ ¿actio != 'RESTAR'?                                                │
+│       │    │                                                                 │
+│       │    ├─→ SÍ → CALL outdyn() → Escribir valores iniciales al HISTORY   │
+│       │    │                                                                  │
+│       │    └─→ NO → Saltar                                                    │
+│       │                                                                       │
+│       └─→ CALL dynamic() [Entrada al análisis dinámico]                      │
+│            │                                                                 │
+│            ├─→ Cálculos aeroelásticos iniciales                              │
+│            ├─→ Bucle temporal interno (while)                                │
+│            │   │                                                              │
+│            │   ├─→ where() → Tiempo en el paso actual                        │
+│            │   ├─→ while() → Bucle temporal                                  │
+│            │   │    │                                                         │
+│            │   │    ├─→ Integración numérica del sistema aeroelástico        │
+│            │   │    ├─→ Actualización de variables de estado                 │
+│            │   │    └─→ Verificación de convergencia                         │
+│            │   │                                                         │
+│            │   └─→ Criterios de terminación:                                 │
+│            │       │                                                         │
+│            │       ├─→ endst alcanzado                                       │
+│            │       ├─→ Convergencia fallida                                  │
+│            │       └─→ Criterios físicos superados                           │
+│            │                                                                 │
+│            └─→ Verificación de criterios de terminación                      │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PARTE 4 - CIERRE DEL BUCLE Y FINALIZACIÓN (LÍNEAS 165-237)                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│ 📌 OBJETIVO:                                                                 │
+│    Entender cómo se cierra el bucle temporal, maneja errores,               │
+│    exporta datos y finaliza la ejecución de la simulación.                   │
+│                                                                              │
+│ 📊 FUNCIONES CLAVE:                                                          │
+│    • dynamic()   → Análisis dinámico (CORAZÓN DEL BUCLE)                     │
+│    • trarot()    → Posicionamiento del rotor                                 │
+│    • export()    → Exportación de conjuntos de elementos                     │
+│    • byebye(time)→ Limpieza de recursos y cierre                             │
+│    • introut_mng()→ Gestión de entrada/salida aero                           │
+│    • BEEPQQ()    → Sonido de finalización                                    │
+│                                                                              │
+│ 📋 FLOWCHART:                                                                │
+│                                                                              │
+│     CALL dynamic() [Terminado]                                               │
+│       │                                                                       │
+│       ├─→ ¿actmsh == TRUE?                                                   │
+│       │    │                                                                 │
+│       │    ├─→ SÍ → ¿ANY(r_meshmo)? → ¿Hay remesh requerido?                 │
+│       │    │       │                                                         │
+│       │    │       ├─→ SÍ → Escribir mensaje: "*** START OF REMESH NUMBER"  │
+│       │    │       │                                                                  │
+│       │    │       └─→ NO → Saltar remesh                                         │
+│       │    │                                                                 │
+│       │    └─→ NO (ELSE) → Escribir mensaje de fin de estrategia            │
+│       │         │                                                            │
+│       │         ├─→ WRITE(6, ...)  → Salida estándar                        │
+│       │         │   │                                                       │
+│       │         │   └─→ "*** END OF STAGE X: Y"                              │
+│       │         │                                                            │
+│       │         └─→ WRITE(55, ...) → Archivo de reporte extendido           │
+│       │             │                                                        │
+│       │             └─→ Mismo mensaje que arriba (formato 5X)               │
+│       │                                                                 │
+│       ├─→ ¿neset > 0? (Conjuntos de elementos seleccionados)                 │
+│       │    │                                                             │
+│       │    ├─→ SÍ → CALL export() → Exportar conjuntos de elementos        │
+│       │    │       │                                                       │
+│       │    │       └─→ Guardar datos de elementos seleccionados             │
+│       │    │                                                            │
+│       │    └─→ NO → Saltar exportación                                       │
+│       │                                                                 │
+│       └─→ CALL trarot() [Posicionamiento del rotor]                         │
+│            │                                                              │
+│            └─→ Ajusta posición/orientación para siguiente iteración         │
+│                                                                              │
+│     IF (istop /= 0) EXIT ← ¡CONDICIÓN CRÍTICA!                               │
+│       │                                                                       │
+│       ├─→ ¿Por qué istop != 0?                                               │
+│       │   │                                                                 │
+│       │   ├─→ endst alcanzado (número máximo de pasos)                      │
+│       │   ├─→ Convergencia fallida en algún criterio                        │
+│       │   └─→ Error detectado durante ejecución                             │
+│       │                                                                 │
+│       └─→ Continuar o terminar...                                            │
+│                                                                              │
+│     END DO [Fin bucle sobre estrategias]                                     │
+│       │                                                                       │
+│       └─→ IF (istop /= 0) THEN ← ¿Hubo error?                                │
+│            │                                                                 │
+│            ├─→ WRITE(*, ...) → Salida estándar                              │
+│            │   │                                                            │
+│            │   └─→ "*** END PROGRAM - PROBLEMS DETECTED ***"                │
+│            │                                                                 │
+│            └─→ WRITE(55, ...) → Archivo de reporte extendido                │
+│                 │                                                           │
+│                 ├─→ "*** END PROGRAM - PROBLEMS DETECTED ***"               │
+│                 │                                                            │
+│                 └─→ "*** ERRONEOUS RESULTS POSSIBLY ***"                     │
+│                      │                                                      │
+│                      └─→ Advertencia: resultados pueden no ser válidos      │
+│                                                                              │
+│     CALL byebye(time) [Cierre de archivos]                                   │
+│       │                                                                       │
+│       ├─→ CALL timing(19,2) → Tiempo de CPU                                 │
+│       ├─→ CLOSE(ludat)  → Archivo de datos (STATUS='delete'/'keep')         │
+│       ├─→ CLOSE(lures)  → Archivos de resultados                            │
+│       ├─→ CLOSE(55)     → Archivo de reporte extendido                      │
+│       └─→ CLOSE(58)     → Archivo de depuración (debug)                     │
+│                                                                              │
+│     CALL introut_mng('end') [Gestión de entrada/salida aero]                 │
+│       │                                                                       │
+│       └─→ Limpieza de buffers y manejo de archivos .dat                     │
+│                                                                              │
+│     CALL BEEPQQ(5000,50) [Sonido de finalización]                            │
+│       │                                                                       │
+│       ├─→ Frecuencia: 5000 Hz                                                │
+│       └─→ Duración: 50 ms                                                    │
+│                                                                              │
+│     STOP → Termina ejecución                                                  │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+PROCESO COMPLETO DE EJECUCIÓN V720:
+================================================================================
+
+   ┌──────────────────────────────────────────────────────────────────────────┐
+   │ 1. INICIALIZACIÓN (Parte 1 - Líneas 1-42)                                │
+   │    └─→ beginp() → Determinar tipo de problema (NEW/RESTAR/NSTRA0)        │
+   │    └─→ restar() → Reiniciar según actio                                   │
+   │    └─→ init_comp() → Compilación inicial                                  │
+   │    └─→ Abrir archivos de entrada/salida                                   │
+   │                                                                           │
+   │ 2. TRANSICIÓN Y SELECCIÓN (Parte 2-A - Líneas 42-68)                     │
+   │    └─→ timing() → Registro de tiempo                                       │
+   │    └─→ outdyn() → Escribir valores iniciales al HISTORY                   │
+   │    └─→ Seleccionar estrategia (pstatic/dynamic)                           │
+   │                                                                           │
+   │ 3. CÁLCULOS INICIALES (Parte 2-B - Líneas 68-94)                         │
+   │    └─→ A_matrix() → Construcción de matriz A                              │
+   │    └─→ C_vector() → Construcción del vector C                             │
+   │    └─→ wake_mgmt() → Manejo de la estela                                  │
+   │    └─→ airfoil_tab() → Evaluación de tablas airfoil                        │
+   │                                                                           │
+   │ 4. BUCLE TEMPORAL DINÁMICO (Parte 3 - Líneas 96-165)                     │
+   │    └─→ DO ... END DO → Bucle principal sobre pasos temporales             │
+   │    └─→ CALL dynamic() [CORAZÓN DE LA SIMULACIÓN]                          │
+   │         ├─→ Cálculos aeroelásticos iniciales                              │
+   │         ├─→ where() → Tiempo en el paso actual                            │
+   │         ├─→ while() → Bucle temporal interno                              │
+   │         │   ├─→ Integración numérica del sistema aeroelástico             │
+   │         │   ├─→ Actualización de variables de estado                       │
+   │         │   └─→ Verificación de convergencia                              │
+   │         └─→ Criterios de terminación                                      │
+   │                                                                           │
+   │ 5. CIERRE DEL BUCLE (Parte 4 - Líneas 165-237)                            │
+   │    └─→ Verificación de remesh y exportación                               │
+   │    └─→ trarot() → Posicionamiento del rotor                                │
+   │    └─→ byebye(time) → Limpieza de recursos                                │
+   │    └─→ introut_mng('end') → Gestión de entrada/salida aero                │
+   │    └─→ BEEPQQ() → Sonido de finalización                                  │
+   │    └─→ STOP → Termina ejecución                                           │
+   └──────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+PUNTOS CRÍTICOS DE LA SIMULACIÓN AEROELÁSTICA V720:
+================================================================================
+
+1. CALL dynamic() es el CORAZÓN de toda la simulación aeroelástica dinámica
+2. El bucle temporal interno (while) realiza la integración numérica paso a paso
+3. La matriz A representa el sistema aeroelástico completo con acoplamiento fluido-estructura
+4. wake_mgmt() mantiene la estela para cálculos aerodinámicos precisos
+5. airfoil_tab() proporciona coeficientes aerodinámicos no lineales
+6. Los criterios de terminación (endst, convergencia) controlan cuándo finalizar
+7. CALL byebye(time) es esencial para limpieza de recursos y cierre correcto
+
+================================================================================
+ARCHIVOS INVOLUCRADOS:
+================================================================================
+
+Entrada:
+  • input.dat   → Datos del programa (Ludat)
+
+Salida:
+  • output.dat  → Resultados (lures)
+  • *.rep       → Archivos de reporte extendido
+  • HISTORY      → Valores iniciales para visualización
+
+Archivos temporales:
+  • Ludat        → Archivo principal de datos del programa
+  • lures        → Archivos de resultados
+  • Archivo 55   → Reporte extendido
+  • Archivo 58   → Depuración (debug)
+
+================================================================================

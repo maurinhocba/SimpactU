@@ -1,0 +1,196 @@
+================================================================================
+PARTE 2-B DEL RECORRIDO POR V720 - CÁLCULOS INICIALES AEROELÁSTICOS
+(LÍNEAS 68-94)
+================================================================================
+
+📌 OBJETIVO DE ESTA PARTE:
+   Entender todos los cálculos aeroelásticos iniciales que se realizan
+   antes de entrar en el bucle temporal dinámico (Parte 3).
+
+--------------------------------------------------------------------------------
+LÍNEA 68: COMENTARIO DE INICIO
+--------------------------------------------------------------------------------
+
+%======= Initial calculations ===================================
+│
+└─→ Esta línea marca el inicio de los Cálculos Iniciales Aeroelásticos
+    donde se prepara TODO el contexto para la simulación dinámica
+
+--------------------------------------------------------------------------------
+LÍNEAS 69-70: CONDICIÓN ACTIO Y CÁLCULO PRINCIPAL
+--------------------------------------------------------------------------------
+
+IF (actio/='RESTAR') % it means NEW o NSTRA0
+  │   │
+  │   └─→ Solo se hacen cálculos iniciales si NO es un reinicio simple
+  │       • NEW   → Primer problema, inicialización completa
+  │       • NSTRA0→ Nueva estrategia con mismo problema, recalcular
+  │       • RESTAR→ Reinicio sin cambios, saltar cálculos iniciales
+  │
+  └─→ CALL initial_comp() [CÁLCULO AEROELÁSTICO PRINCIPAL]
+      │
+      ├─→ Inicializa todos los parámetros aeroelásticos
+      ├─→ Calcula matrices de acoplamiento FSI
+      ├─→ Establece condiciones iniciales para cada grado de libertad
+      └─→ Prepara el sistema para análisis dinámico
+
+--------------------------------------------------------------------------------
+LÍNEAS 71-80: INICIALIZACIÓN INTERFAZ FSI Y DATOS GEOMÉTRICOS
+--------------------------------------------------------------------------------
+
+IF (aero) % Solo si es problema aeroelástico
+  │   │
+  │   └─→ IF (actio=='NEW') % Solo en problemas NUEVOS
+  │         │
+  │         ├─→ CALL inter_ini() [Inicialización Interfaz FSI]
+  │         │    │
+  │         │    ├─→ Crea estructura de datos para acoplamiento fluido-estructura
+  │         │    ├─→ Inicializa matrices de transformación coordenadas
+  │         │    └─→ Configura comunicación entre módulos aerodinámico y estructural
+  │         │
+  │         ├─→ CALL Geo_references() [Referencias Geométricas]
+  │         │    │
+  │         │    ├─→ Calcula longitudes de aspas (span-wise)
+  │         │    ├─→ Calcula áreas de secciones transversales
+  │         │    ├─→ Define puntos de referencia para integración numérica
+  │         │    └─→ Establece coordenadas de integración aerodinámica
+  │         │
+  │         ├─→ CALL Copy_blades() [Coordenadas Locales de Aspas]
+  │         │    │
+  │         │    ├─→ Calcula coordenadas locales para aspa 2
+  │         │    ├─→ Calcula coordenadas locales para aspa 3
+  │         │    └─→ Transforma nodos aerodinámicos a sistema local de cada aspa
+  │         │
+  │         ├─→ CALL part_Kinematics() [Cinemática Global de Nodos]
+  │         │    │
+  │         │    ├─→ Calcula posiciones globales de todos los nodos aerodinámicos
+  │         │    ├─→ Considera desplazamientos iniciales (si existen)
+  │         │    └─→ Mapea nodos entre sistemas estructurales y aerodinámicos
+  │         │
+  │         ├─→ CALL CP_coords() [Coordenadas de Control Points]
+  │         │    │
+  │         │    ├─→ Define posición global de cada Control Point (CP)
+  │         │    ├─→ Establece coordenadas para integración numérica de fuerzas
+  │         │    └─→ Prepara CPs para cálculo de cargas aerodinámicas
+  │         │
+  │         ├─→ DO % Loop over pairs [Bucle sobre pares estructura-aerodinámica]
+  │         │       │
+  │         │       ├─→ define some data on TYPE(pair) variables
+  │         │       │    → Define tipo de par (estructural/aerodinámico/acoplado)
+  │         │       │
+  │         │       ├─→ (eventually) CALL findBed() [Datos BED adicionales]
+  │         │       │    → Lee datos Blade Element Data para pares específicos
+  │         │       │    → Obtiene coeficientes aerodinámicos locales
+  │         │       │
+  │         │       └─→ CALL mngMstrs() [Nodos Maestros]
+  │         │            → Identifica nodos maestros en interfaces acopladas
+  │         │            → Establece correspondencia entre sistemas
+  │         │
+  │         └─→ ENDDO
+  │
+  └─→ FIN IF (aero)
+
+--------------------------------------------------------------------------------
+LÍNEA 81: CÁLCULO DEL PASO TEMPORAL CRÍTICO
+--------------------------------------------------------------------------------
+
+CALL DtCalc(.FALSE.) % aero. time step [CÁLCULO DEL PASO TEMPORAL]
+│   │
+│   ├─→ Calcula el paso temporal crítico para estabilidad numérica
+│   ├─→ Considera:
+│   │   • Velocidad del flujo (criterio CFL aerodinámico)
+│   │   • Frecuencias estructurales más altas (criterio estructural)
+│   │   • Velocidad de propagación de ondas acústicas (criterio acústico)
+│   └─→ Selecciona el paso temporal más restrictivo para estabilidad
+
+📌 IMPORTANTE: .FALSE. indica que es la primera vez
+    → No se ajusta aún por convergencia aeroelástica
+    → Usa estimación conservadora basada en parámetros físicos
+
+--------------------------------------------------------------------------------
+LÍNEAS 82-94: MANEJO DE ARCHIVOS Y REGISTROS AERODINÁMICOS
+--------------------------------------------------------------------------------
+
+CALL introut_mng('initial') % Gestión de entrada/salida inicial
+│   │
+│   └─→ zonesPerIter, tMaxTecPlot, y otros parámetros de salida
+
+IF (actio/='NEW' .OR. actio/='RESTAR') % then, actio==NSTRA0
+  │   │
+  │   └─→ CALL inter_tp3() [Cierra algunos archivos de salida]
+  │         → Cierra archivos temporales de inicialización
+  │         → Prepara para apertura de archivos principales
+
+% open files
+CALL inter_tp1(actio) % Abre archivos según tipo de problema
+│   │
+│   ├─→ Si actio=='NEW':
+│   │    ├─→ create files y write headers [Crea archivos y escribe encabezados]
+│   │    └─→ Inicia root.AR.dat, root.FM.dat, etc.
+│   │
+│   └─→ CALL inter_reg('init') % Registro aerodinámico inicial
+│        → Escribe primeros datos en registro aeroelástico
+│        → Inicializa tablas de coeficientes y variables de estado
+
+% >>> AL FINAL (línea 92)
+CALL include_damp() [Coeficientes de amortiguamiento]
+│   │
+│   └─→ Escribe coeficientes de amortiguamiento en "damp"
+│       → Simula extracción de potencia del generador
+│       → Configura damping para respuesta estructural
+
+ENDIF % FIN de IF (aero)
+ENDIF % FIN de IF (actio/='RESTAR')
+
+--------------------------------------------------------------------------------
+RESUMEN DE LA PARTE 2-B:
+--------------------------------------------------------------------------------
+
+✅ LO QUE OCURRE EN ESTE BLOQUE:
+   1. Verificamos si es problema nuevo o nueva estrategia (no RESTAR simple)
+   2. Llamamos a initial_comp() para cálculos aeroelásticos principales
+   3. Si es aerodinámico y nuevo: inicializamos interfaz FSI completa
+   4. Calculamos referencias geométricas (longitudes, áreas)
+   5. Transformamos coordenadas de aspas a sistemas locales
+   6. Calculamos posiciones globales de nodos aerodinámicos
+   7. Definimos coordenadas de Control Points para integración numérica
+   8. Bucle sobre pares estructura-aerodinámica:
+      - Definimos datos por tipo de par
+      - Obtenemos datos BED adicionales si aplica
+      - Identificamos nodos maestros en interfaces
+   9. Calculamos paso temporal crítico (DtCalc) para estabilidad numérica
+   10. Gestionamos archivos de entrada/salida y registros aerodinámicos
+
+⚠️ PUNTO CRÍTICO A ENTENDER:
+   • initial_comp() es el corazón de la inicialización aeroelástica
+   • La interfaz FSI requiere especial atención en problemas NUEVOS
+   • El paso temporal crítico se calcula conservadoramente al inicio
+   • Los archivos de salida se gestionan según tipo de problema (NEW/NSTRA0)
+
+📝 DETALLE DE CADA FUNCIÓN:
+   • inter_ini()    → Estructura datos para acoplamiento fluido-estructura
+   • Geo_references() → Longitudes, áreas y puntos de integración aerodinámica
+   • Copy_blades()  → Coordenadas locales para aspas 2 y 3
+   • part_Kinematics() → Posiciones globales de nodos aerodinámicos
+   • CP_coords()    → Posiciones globales de Control Points
+   • findBed()      → Datos Blade Element Data adicionales por par
+   • mngMstrs()     → Nodos maestros en interfaces acopladas
+   • DtCalc(.FALSE.) → Paso temporal crítico inicial (conservador)
+
+🎯 IMPORTANCIA DE ESTOS CÁLCULOS:
+   Sin estos cálculos iniciales, el bucle temporal dinámico no tendría:
+   - Referencias geométricas para integrar fuerzas aerodinámicas
+   - Coordenadas de Control Points para calcular cargas
+   - Paso temporal adecuado para estabilidad numérica
+   - Correspondencia entre sistemas estructurales y aerodinámicos
+
+--------------------------------------------------------------------------------
+TRANSICIÓN A PARTE 3 (LÍNEA 96+):
+--------------------------------------------------------------------------------
+
+%======= Step-by-step solution =================================
+│
+└─→ Aquí comienza el bucle temporal dinámico donde ocurren los cálculos
+    aeroelásticos en cada paso de tiempo (Parte 3 - CORAZÓN DEL CÁLCULO)
+
+================================================================================

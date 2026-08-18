@@ -1,0 +1,339 @@
+================================================================================
+PARTE 4 DEL RECORRIDO POR V720 - CIERRE DEL BUCLE Y FINALIZACIÓN
+(LÍNEAS 165-237)
+================================================================================
+
+📌 OBJETIVO DE ESTA PARTE:
+   Entender cómo se cierra el bucle temporal, se manejan los errores,
+   se exportan datos y se finaliza la ejecución de la simulación aeroelástica.
+
+--------------------------------------------------------------------------------
+LÍNEAS ORIGINALES 165-171: FINALIZACIÓN DEL BUCLE POR ESTRATEGIAS
+--------------------------------------------------------------------------------
+
+📋 FLOWCHART DE FINALIZACIÓN:
+
+   WHILE (istop == 0) [BUCLE VIVO]
+     │
+     ├─→ CALL timing()    → Registra tiempo de ejecución
+     │
+     ├─→ ¿ncdis > 10?
+     │    │
+     │    ├─→ SÍ → Actualizar contadores de display (dumi, ecdis)
+     │    │       │
+     │    │       └─→ Cada 10 pasos: dumi = ncdis/10
+     │    │           │
+     │    │           └─→ ecdis = dumi*10 + MOD(ncdis,10)
+     │    │
+     │    └─→ NO → ecdis = ncdis (contador directo)
+     │
+     ├─→ ¿actio != 'RESTAR'?
+     │    │
+     │    ├─→ SÍ → CALL outdyn()  → Escribir valores iniciales al HISTORY
+     │    │       │
+     │    │       └─→ Preparar datos para visualización inicial
+     │    │
+     │    └─→ NO → Saltar esta parte
+     │
+     ├─→ ¿static == TRUE? (raro en aeroelástico)
+     │    │
+     │    ├─→ SÍ → CALL pstatic()  → Análisis estático pseudo
+     │    │       │
+     │    │       └─→ No usado en versión aeroelástica actual
+     │    │
+     │    └─→ NO (ELSE) → CALL dynamic()  ← ESTE ES EL CORAZÓN DEL BUCLE
+     │         │
+     │         ├─→ Realiza un paso temporal completo:
+     │         │   │
+     │         │   ├─→ Cálculos aeroelásticos iniciales
+     │         │   ├─→ Bucle temporal dinámico (Parte 3)
+     │         │   ├─→ Actualización de estados
+     │         │   └─→ Preparación para siguiente paso
+     │         │
+     │         └─→ Verificar criterios de terminación:
+     │              │
+     │              ├─→ ¿endst alcanzado? → EXIT (terminar)
+     │              ├─→ ¿Convergencia fallida? → istop = -1
+     │              └─→ ¿Criterio de tiempo superado? → istop = 0
+     │
+     └─→ Continuar o terminar...
+
+📊 DETALLE DE CALL dynamic():
+   Esta función es el núcleo del análisis aeroelástico dinámico. Dentro:
+   
+   a) Inicialización de paso temporal:
+      - Contador de pasos incrementado
+      - Tiempo actualizado: t = t + dtime
+      
+   b) Cálculos aeroelásticos iniciales (antes del bucle temporal):
+      - Evaluación de fuerzas aerodinámicas
+      - Actualización de wake (estela)
+      - Interacción fluido-estructura
+      
+   c) Bucle temporal interno (Parte 3):
+      - where = tiempo en el paso actual
+      - while (criterios no alcanzados)
+        │
+        ├─→ Integración numérica del sistema aeroelástico
+        ├─→ Actualización de variables de estado
+        └─→ Verificación de convergencia
+      
+   d) Verificación de criterios de terminación:
+      - endst (número máximo de pasos)
+      - Convergencia del residuo
+      - Criterios físicos (velocidad, desplazamiento, etc.)
+
+--------------------------------------------------------------------------------
+LÍNEAS ORIGINALES 174-187: MANEJO DE REMESH Y EXPORTACIÓN
+--------------------------------------------------------------------------------
+
+📋 FLOWCHART POST-DYNAMIC:
+
+   CALL dynamic() [Terminado]
+     │
+     ├─→ ¿actmsh == TRUE? (Modificación de malla activada)
+     │    │
+     │    ├─→ SÍ → ¿ANY(r_meshmo)?  → ¿Hay remesh requerido?
+     │    │       │
+     │    │       ├─→ SÍ → Escribir mensaje: "*** START OF REMESH NUMBER X"
+     │    │       │       │
+     │    │       │       └─→ Escribir en archivo 55 también
+     │    │       │
+     │    │       └─→ NO → Saltar remesh
+     │    │
+     │    └─→ NO (ELSE) → Escribir mensaje de fin de estrategia:
+     │         │
+     │         ├─→ WRITE(6, ...)  → Salida estándar
+     │         │   │
+     │         │   └─→ "*** END OF STAGE X: Y"
+     │         │
+     │         └─→ WRITE(55, ...) → Archivo de reporte extendido
+     │             │
+     │             └─→ Mismo mensaje que arriba (formato 5X)
+     │
+     ├─→ ¿neset > 0? (Conjuntos de elementos seleccionados)
+     │    │
+     │    ├─→ SÍ → CALL export()  → Exportar conjuntos de elementos
+     │    │       │
+     │    │       └─→ Guardar datos de elementos seleccionados
+     │    │
+     │    └─→ NO → Saltar exportación
+     │
+     └─→ ¿endmsh == TRUE? (Modificación de malla al final)
+          │
+          ├─→ SÍ → Preparar para remesh post-dinámica
+          │       │
+          │       └─→ (Código comentado, no ejecutado actualmente)
+          │
+          └─→ NO → Continuar bucle
+
+📌 NOTA IMPORTANTE:
+   - "actmsh" indica si se activó modificación de malla en esta estrategia
+   - "r_meshmo" es un array booleano que indica qué nodos requieren remesh
+   - "neset" cuenta conjuntos de elementos exportados
+   - "endmsh" activa remesh al finalizar la estrategia
+
+--------------------------------------------------------------------------------
+LÍNEAS ORIGINALES 189-192: SELECT TRAROT (POSICIONAMIENTO)
+--------------------------------------------------------------------------------
+
+📋 FLOWCHART DE POSICIONAMIENTO:
+
+   SELECT CASE (actio)
+     │
+     ├─→ "TRAROT" → CALL trarot() [Posicionamiento de rotor]
+     │    │
+     │    └─→ Ajusta posición/orientación del rotor antes de nuevo paso
+     │
+     └─→ DEFAULT → Continuar bucle normal
+
+📌 TRAROT:
+   Esta subrutina posiciona el rotor para la siguiente iteración,
+   aplicando rotación y traslación según parámetros de control.
+
+--------------------------------------------------------------------------------
+LÍNEAS ORIGINALES 194-203: CONDICIÓN DE SALIDA DEL BUCLE PRINCIPAL
+--------------------------------------------------------------------------------
+
+📋 FLOWCHART DE SALIDA DEL BUCLE:
+
+   CALL trarot() [Opcional]
+     │
+     └─→ IF (istop /= 0) EXIT ← ¡CONDICIÓN CRÍTICA!
+          │
+          ├─→ ¿istop == 0? (Bucle vivo)
+          │    │
+          │    ├─→ SÍ → Continuar con siguiente estrategia
+          │    │       │
+          │    │       ├─→ ptold = ptype [Guardar tipo anterior]
+          │    │       │
+          │    │       └─→ ¿actmsh?
+          │    │            │
+          │    │            ├─→ SÍ → actio = 'MESHMO' [Modificación de malla]
+          │    │            │
+          │    │            └─→ NO → actio = 'NSTRA0' [Nueva estrategia 0]
+          │    │
+          │    └─→ NO (istop /= 0) → EXIT del bucle
+          │         │
+          │         ├─→ ¿Por qué istop != 0?
+          │         │   │
+          │         │   ├─→ endst alcanzado (número de pasos máximo)
+          │         │   ├─→ Convergencia fallida en algún criterio
+          │         │   └─→ Error detectado durante ejecución
+          │         │
+          │         └─→ Program continúa con limpieza y cierre
+
+📌 VALORES DE ISTOP:
+   • istop == 0 → Ejecución normal, continuar bucle
+   • istop == -1 → Error de convergencia, terminar
+   • istop > 0   → Número de errores críticos, terminar
+
+--------------------------------------------------------------------------------
+LÍNEAS ORIGINALES 205-233: CIERRE DEL PROGRAMA Y MANEJO DE ERRORES
+--------------------------------------------------------------------------------
+
+📋 FLOWCHART DE FINALIZACIÓN:
+
+    END DO [Fin bucle sobre estrategias]
+      │
+      └─→ IF (istop /= 0) THEN ← ¿Hubo error?
+           │
+           ├─→ WRITE(*, ...) → Salida estándar
+           │   │
+           │   └─→ "*** END PROGRAM - PROBLEMS DETECTED ***"
+           │
+           └─→ WRITE(55, ...) → Archivo de reporte extendido
+               │
+               ├─→ "*** END PROGRAM - PROBLEMS DETECTED ***"
+               │
+               └─→ "*** ERRONEOUS RESULTS POSSIBLY ***"
+                   │
+                   └─→ Advertencia: resultados pueden no ser válidos
+                       │
+                       └─→ Continuar con cierre (limpieza)
+                           │
+                           └─→ CALL byebye(time) [Cierre de archivos]
+
+📋 SUBROUTINE byebye(time):
+   Esta rutina limpia recursos y cierra el programa:
+   
+   a) Cierre de temporizador: CALL timing(19,2)
+      - Registra tiempo final de ejecución
+      
+   b) Cierre de archivos:
+      │
+      ├─→ CALL timing(19,2)    → Tiempo de CPU
+      ├─→ CALL byebye(time)    → Limpieza completa
+      │     │
+      │     ├─→ Cerrar archivo Ludat (datos del programa)
+      │     │   │
+      │     │   └─→ STATUS='delete' si aero, 'keep' si no
+      │     │
+      │     ├─→ CLOSE(lures)    → Archivos de resultados
+      │     │
+      │     ├─→ CLOSE(55)       → Archivo de reporte extendido
+      │     │
+      │     └─→ CLOSE(58)       → Archivo de depuración (debug)
+      │
+      ├─→ CALL introut_mng('end') → Gestión de entrada/salida aero
+      │  │
+      │  └─→ Limpieza de buffers y manejo de archivos .dat
+      │
+      └─→ CALL BEEPQQ(5000,50) → Sonido de finalización
+           │
+           ├─→ Frecuencia: 5000 Hz
+           ├─→ Duración: 50 ms
+           └─→ Alerta visual/auditiva de finalización
+
+📌 VALOR DE "time":
+   - Tiempo total de ejecución del programa (segundos)
+   - Usado para reporte final y cierre de temporizador
+
+--------------------------------------------------------------------------------
+RESUMEN EJECUTIVO DEL CIERRE:
+--------------------------------------------------------------------------------
+
+1. BUCLE TEMPORAL TERMINADO:
+   ──────────────────────────
+   • Cada iteración ejecutó CALL dynamic()
+   • Se verificaron criterios de terminación (endst, convergencia, etc.)
+   • Cuando istop != 0 → EXIT del bucle
+
+2. MANEJO DE REMESH Y EXPORTACIÓN:
+   ────────────────────────────────
+   • Si actmsh == TRUE y hay nodos para remesh → Escribir mensaje
+   • Si neset > 0 → Exportar conjuntos de elementos
+   • Mensajes diferentes según estado (START OF / END OF)
+
+3. POSICIONAMIENTO DEL ROTOR:
+   ────────────────────────────
+   • CALL trarot() ajusta posición/orientación para siguiente iteración
+
+4. DETECCIÓN DE ERRORES:
+   ──────────────────────
+   • istop == -1 → Error de convergencia
+   • istop > 0  → Errores críticos detectados
+   • WRITE(55, ...) advierte posibles resultados erróneos
+
+5. LIMPIEZA Y FINALIZACIÓN:
+   ──────────────────────────
+   a) CALL byebye(time) cierra:
+      - Temporizador de CPU
+      - Archivos de datos (Ludat, lures)
+      - Reporte extendido (55)
+      - Archivo de depuración (58)
+      
+   b) CALL introut_mng('end') gestiona salida aeroelástica
+      
+   c) CALL BEEPQQ() emite sonido de finalización
+
+6. FINALIZACIÓN DEL PROGRAMA:
+   ────────────────────────────
+   • STOP → Termina ejecución
+   • 9999 → Manejo de errores al escribir archivos REP
+
+================================================================================
+PUNTOS CRÍTICOS DE LA PARTE 4:
+================================================================================
+
+1. CALL dynamic() es el corazón del análisis aeroelástico dinámico
+2. istop controla la vida del bucle (0 = vivo, != 0 = terminar)
+3. CALL byebye(time) es esencial para limpieza de recursos
+4. WRITE(55, ...) mantiene registro detallado en archivo extendido
+5. BEEPQQ() proporciona feedback auditivo de finalización
+6. STATUS='delete'/'keep' controla si borrar datos del programa al finalizar
+
+================================================================================
+PROCESO COMPLETO DE FINALIZACIÓN:
+================================================================================
+
+   ┌─────────────────────────────────────────────────────────────┐
+   │ 1. BUCLE TEMPORAL TERMINADO (istop != 0)                    │
+   │    └─→ CALL dynamic() ejecutó todos los pasos               │
+   │                                                             │
+   │ 2. VERIFICACIÓN DE REMESH                                   │
+   │    ├─→ actmsh == TRUE                                       │
+   │    ├─→ ANY(r_meshmo) → Nodos para remesh                    │
+   │    └─→ Escribir mensaje START OF / END OF                   │
+   │                                                             │
+   │ 3. EXPORTACIÓN DE DATOS                                     │
+   │    └─→ CALL export() si neset > 0                           │
+   │                                                             │
+   │ 4. POSICIONAMIENTO DEL ROTOR                                │
+   │    └─→ CALL trarot()                                        │
+   │                                                             │
+   │ 5. DETECCIÓN DE ERRORES                                      │
+   │    ├─→ istop == -1 → Error de convergencia                  │
+   │    └─→ istop > 0  → Errores críticos                        │
+   │                                                             │
+   │ 6. LIMPIEZA DE RECURSOS                                     │
+   │    ├─→ CALL timing(19,2) → Tiempo de CPU                    │
+   │    ├─→ CALL byebye(time) → Cierre de archivos               │
+   │    ├─→ CALL introut_mng('end') → Gestión salida aero        │
+   │    └─→ CALL BEEPQQ() → Sonido de finalización               │
+   │                                                             │
+   │ 7. FINALIZACIÓN DEL PROGRAMA                                 │
+   │    └─→ STOP → Termina ejecución                             │
+   └─────────────────────────────────────────────────────────────┘
+
+================================================================================

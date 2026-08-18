@@ -1,0 +1,503 @@
+================================================================================
+PARTE 3 DEL RECORRIDO POR V720 - ANÁLISIS DINÁMICO PASO A PASO
+(DESGLOSE LÍNEA POR LÍNEA - BUCLE TEMPORAL)
+(LÍNEAS 96-165)
+================================================================================
+
+📌 OBJETIVO DE ESTA PARTE:
+   Desglosar cada línea del bucle temporal dinámico para entender
+   exactamente qué ocurre en cada paso de tiempo.
+
+--------------------------------------------------------------------------------
+LÍNEA 96: COMENTARIO DE INICIO DEL BUCLE TEMPORAL
+--------------------------------------------------------------------------------
+
+%======= Step-by-step solution ===================================
+│
+└─→ Esta línea marca el inicio de la solución paso a paso del análisis dinámico
+    donde ocurren los cálculos aeroelásticos en cada instante temporal
+
+--------------------------------------------------------------------------------
+LÍNEAS 97-98: CONDICIÓN ESTÁTICO vs DINÁMICO
+--------------------------------------------------------------------------------
+
+IF (static) % pseudo STATIC analysis - not used in aerod. version
+ELSE        % standard DYNAMIC analysis
+  │   │
+  │   ├─→ En versión aeroelástica de Simpact, static = .FALSE. siempre
+  │   └─→ Por lo tanto, siempre entra en la rama ELSE (DINÁMICO)
+  │
+  └─→ CALL dynamic() [Entrada al análisis dinámico]
+      │
+      ├─→ Inicializa contadores de pasos temporales
+      ├─→ Configura criterios de terminación (endst)
+      └─→ Activa modo dinámico
+
+--------------------------------------------------------------------------------
+LÍNEAS 99-102: BUCLE PRINCIPAL SOBRE PASOS TEMPORALES
+--------------------------------------------------------------------------------
+
+DO  % endless over time steps [BUCLE PRINCIPAL]
+  │   │
+  │   ├─→ Cada iteración representa un instante temporal (t = t + dtime)
+  │   └─→ Dentro del bucle ocurre todo el análisis aeroelástico dinámico
+
+--------------------------------------------------------------------------------
+LÍNEAS 100-129: BLOQUE AERODINÁMICO DENTRO DEL PASO TEMPORAL
+--------------------------------------------------------------------------------
+
+IF (aero) % Solo en pasos con componente aerodinámico
+  │   │
+  │   ├─→ Verificamos si este paso temporal incluye cálculos aeroelásticos
+  │   └─→ En análisis dinámico completo, aero = .TRUE. siempre
+
+--------------------------------------------------------------------------------
+LÍNEAS 101-122: NUEVA ETAPA AEROELÁSTICA O CONTINUACIÓN
+--------------------------------------------------------------------------------
+
+IF (nest==numnest) % a new aerodyn. step needs to be done
+  │   │
+  │   ├─→ nest = contador de iteraciones aeroelásticas en este paso temporal
+  │   └─→ numnest = número máximo de iteraciones permitidas antes de nueva etapa
+  
+  ┌─→ SÍ (nest==numnest): Nueva etapa aeroelástica completa
+    │
+    ├─→ nest = 0 [Resetear contador de iteraciones]
+    │
+    ├─→ CALL inter_kin() [Cinemática Interfaz FSI]
+    │    │
+    │    ├─→ Actualiza coordenadas de nodos acoplados estructura-aerodinámica
+    │    ├─→ Transforma entre sistemas estructurales y aerodinámicos
+    │    └─→ Mantiene consistencia geométrica en interfaz FSI
+    │
+
+  ┌─→ CALL NLUVLM_Calc() [Cálculo Aeroelástico No-Lineal]
+    │
+    ├─→ Calcula fuerzas aerodinámicas en Control Points (CPs)
+    ├─→ Usa tablas airfoil para coeficientes CL(α), CD(α)
+    └─→ Considera ángulo de ataque dinámico (incluye deformación estructural)
+
+  ┌─→ CALL CP_normal() % Normal versors at control points
+    │
+    ├─→ Calcula vectores normales a superficies aerodinámicas en cada CP
+    └─→ Necesarios para integrar presiones sobre áreas proyectadas
+
+  ┌─→ CALL RHS1_vector() % Free stream velocity RHS
+    │
+    ├─→ Construye parte del lado derecho (RHS) por flujo libre
+    ├─→ Incluye fuerzas por velocidad del flujo incidente (free stream)
+    └─→ No depende de desplazamientos estructurales
+
+  ┌─→ IF (n/=0) [Si ya se han hecho iteraciones anteriores en este paso]
+    │
+    ├─→ CALL FixConvect() % Updates coordinates of wake nodes that are on the trailing edge
+    │    │
+    │    ├─→ Actualiza coordenadas de nodos de estela en borde de salida (trailing edge)
+    │    └─→ Corrige posiciones de la estela trasera que han sido arrastradas por el flujo
+    │
+
+  ┌─→ CALL RHS2_vector() % Wake RHS
+    │
+    ├─→ Construye contribución de la estela al lado derecho (RHS)
+    ├─→ Incluye efectos inducidos por vorticidad transportada en la estela
+    └─→ Representa fuerzas aerodinámicas debidas a la estela existente
+
+  └─→ ENDIF % Fin del bloque IF (n/=0)
+
+--------------------------------------------------------------------------------
+LÍNEAS 110-111: GESTIÓN DE ARCHIVOS VISUALIZACIÓN (TecPlot OUTPUTS)
+--------------------------------------------------------------------------------
+
+CALL introut_mng('gridAndMesh') [Gestión de archivos de malla]
+  │   │
+  │   ├─→ Prepara datos para visualizar malla aerodinámica y estructural
+  │   └─→ Llama a:
+
+  ┌─→ CALL inter_tp2() % Prints aerodynamic grid in TecPlot output
+    │     → Imprime/escanea la malla aerodinámica en archivo de TecPlot
+    │
+    └─→ CALL inter_tp6() % Prints structural mesh in TecPlot output
+        → Imprime/escanea la malla estructural en archivo de TecPlot
+
+--------------------------------------------------------------------------------
+LÍNEAS 112-113: CONSTRUCCIÓN Y RESOLUCIÓN DEL SISTEMA LINEAL AEROELÁSTICO
+--------------------------------------------------------------------------------
+
+CALL A_matrix() [CONSTRUCCIÓN DE LA MATRIZ AEROELÁSTICA GLOBAL]
+│   │
+│   ├─→ Construye matriz completa del sistema aeroelástico acoplado
+│   ├─→ Formato: A*G = RHS (sistema lineal implícito)
+│   ├─→ Matriz A incluye:
+│   │    • Contribuciones de rigidez estructural (K_structural)
+│   │    • Contribuciones aeroelásticas no-lineales (A_aerodynamic)
+│   │    • Acoplamiento fluido-estructura (coupling terms)
+│   ├─→ Grados de libertad en matriz A:
+│   │    • Desplazamientos estructurales (u, v, w)
+│   │    • Presiones aerodinámicas o coeficientes de presión
+│   │    • Coordenadas de estela (si aplica)
+│   └─→ RHS contiene:
+│       • Cargas externas (presión dinámica, gravedad)
+│       • Contribuciones aeroelásticas no-lineales
+│       • Términos de acoplamiento FSI
+
+CALL DGESV() [RESOLUCIÓN DEL SISTEMA LINEAL]
+│   │
+│   ├─→ Resuelve sistema lineal A*G = RHS usando algoritmo Gauss-Seidel o similar
+│   ├─→ G contiene:
+│   │    • Desplazamientos estructurales en cada nodo (u, v, w)
+│   │    • Variables aerodinámicas (coeficientes de presión, fuerzas locales)
+│   │    • Posiciones de nodos de estela
+│   └─→ Resultado: posiciones actualizadas de todos los nodos
+        • Estructurales: nuevos desplazamientos según cargas aerodinámicas
+        • Aerodinámicos: nuevas configuraciones según deformación estructural
+
+┌─→ 🎯 IMPORTANCIA DE DGESV():
+│     Esta es la parte MÁS CRÍTICA del bucle temporal!
+│     
+│     ALGORITMO USADO: Gauss-Seidel iterativo o similar para resolver A*G=RHS
+│     
+│     ¿POR QUÉ ES TAN IMPORTANTE?
+│       • Resuelve el sistema aeroelástico ACOPLANO estructura-aerodinámica
+│       • Obtiene desplazamientos estructurales (u,v,w) según cargas aerodinámicas
+│       • Determina nuevas configuraciones geométricas para siguiente iteración
+│       • Sin esta resolución = NO HAY RESPUESTA ESTRUCTURAL a cargas aerodinámicas
+│     
+│     📌 GRADOS DE LIBERTIDAD EN LA MATRIZ A:
+│        - Desplazamientos estructurales (u, v, w) en cada nodo
+│        - Presiones aerodinámicas o coeficientes de presión locales  
+│        - Posiciones de nodos de estela (si aplica)
+│     
+│     📌 LO QUE CONTIENE EL VECTOR G (SOLUCIÓN):
+│        - Desplazamientos estructurales en cada nodo
+│        - Variables aerodinámicas (coeficientes de presión, fuerzas locales)
+│        - Posiciones actualizadas de nodos de estela
+
+--------------------------------------------------------------------------------
+LÍNEA 114: PROPIEDADES DE SEGMENTOS (ESTELA)
+--------------------------------------------------------------------------------
+
+CALL Segment_properties() % Segments' vorticity
+│   │
+│   ├─→ Calcula propiedades geométricas de segmentos de estela
+│   ├─→ Determina vorticidad en cada segmento de la estela
+│   └─→ Prepara datos para transporte convectivo en siguiente paso
+
+┌─→ 🎯 DETALLES DE Segment_properties():
+│     Calcula propiedades geométricas de segmentos de estela:
+│     
+│     • Determina vorticidad en cada segmento de la estela
+│     • Calcula longitudes y áreas efectivas de segmentos
+│     • Prepara datos para transporte convectivo en siguiente paso
+│     
+│     📌 IMPORTANCIA: La estela transportada es crucial para calcular
+│       fuerzas aerodinámicas correctas - representa el historial de
+│       vorticidad que afecta el flujo actual.
+
+--------------------------------------------------------------------------------
+LÍNEA 115: CÁLCULO DE CARGAS AEROELÁSTICAS
+--------------------------------------------------------------------------------
+
+CALL Loads() [CARGAS AEROELÁSTICAS TOTALES]
+│   │
+│   ├─→ Integra fuerzas aerodinámicas sobre cada panel aerodinámico
+│   ├─→ Calcula fuerzas totales por aspa:
+│   │    • Fx (fuerza axial)
+│   │    • Fy (fuerza radial)  
+│   │    • Fz (fuerza tangencial)
+│   └─→ Calcula momentos totales sobre rotor:
+│       • Mx (momento de roll)
+│       • My (momento de pitch)
+│       • Mz (momento de yaw)
+
+┌─→ 🎯 IMPORTANCIA DE LOADS():
+│     Es el resultado directo del análisis aeroelástico que resolvió DGESV().
+│     Sin esto no tendríamos las cargas totales para evaluar desempeño estructural y aerodinámico.
+
+--------------------------------------------------------------------------------
+LÍNEAS 116-120: AJUSTE DEL PASO TEMPORAL Y REGISTRO AEROELÁSTICO
+--------------------------------------------------------------------------------
+
+CALL DtCalc(.TRUE.) % DeltaT [AJUSTE DEL PASO TEMPORAL]
+│   │
+│   ├─→ Actualiza paso temporal (DeltaT) basado en:
+│   │    • Convergencia aeroelástica observada
+│   │    • Estabilidad numérica en iteraciones anteriores
+│   │    • Criterio CFL aerodinámico actual
+│   ├─→ Llama a incdlt() para determinar dtime si necesario:
+│   │    │
+│   │    CALL incdlt % determine dtime (less than critical time step)
+│   │             │
+│   │             ├─→ Determina nuevo paso temporal crítico
+│   │             ├─→ Reduce dtime si necesario para estabilidad
+│   │             └─→ No se calcula hasta nueva etapa aeroelástica
+│
+
+┌─→ 🎯 DETALLES DE DtCalc(.TRUE.):
+│     Ajuste dinámico del paso temporal:
+│     
+│     • Actualiza DeltaT basado en criterios de estabilidad numérica
+│     • Evalúa convergencia aeroelástica observada en iteraciones anteriores
+│     • Considera criterio CFL aerodinámico actual
+│     
+│     📌 Llama a incdlt() para determinar dtime si necesario:
+│       - Determina nuevo paso temporal crítico
+│       - Reduce dtime si necesario para estabilidad numérica
+│     
+│     📌 Variables involucradas:
+│       - numnest: contador de iteraciones aeroelásticas
+│       - dtime (adjust): ajusta dinámicamente según convergencia observada
+
+┌─→ numnest [Contador de iteraciones aeroelásticas]
+│   → Incrementa contador de iteraciones internas
+
+┌─→ dtime (adjust) [Ajuste del paso temporal]
+│   → Ajusta dtime dinámicamente según convergencia observada
+
+┌─→ CALL introut_mng('dtime') % aero. registry final table in root.AR.dat
+│     → Escribe tabla de paso temporal en registro aeroelástico
+│
+└─→ CALL inter_reg('dtime') % aero. registry final table in root.AR.dat
+    → Actualiza registro aeroelástico con datos de dtime
+
+--------------------------------------------------------------------------------
+LÍNEA 121: CONVECCIÓN DE ESTELA
+--------------------------------------------------------------------------------
+
+CALL Convect() [TRANSPORTE CONVETTIVO DE ESTELA]
+│   │
+│   ├─→ Actualiza posiciones de nodos de estela en campo de flujo
+│   ├─→ Transporta vorticidad por campo de velocidad actual
+│   └─→ Implementa método de transporte numérico (Lagrangiano)
+
+┌─→ 🎯 DETALLES DE Convect():
+│     Transporte convectivo de estela:
+│     
+│     • Actualiza posiciones de nodos de estela en campo de flujo actual
+│     • Transporta vorticidad por campo de velocidad (método Lagrangiano)
+│     • Implementa esquema numérico para advección de vorticidad
+│     
+│     📌 IMPORTANCIA: Este transporte es fundamental para mantener la
+│       física correcta del desprendimiento vorticial - sin esto, las
+│       fuerzas aerodinámicas serían incorrectas en pasos temporales
+│       posteriores.
+
+--------------------------------------------------------------------------------
+LÍNEAS 122-128: POST-CÁLCULO AEROELÁSTICO
+--------------------------------------------------------------------------------
+
+n = n + 1 [Incrementar contador de etapas aeroelásticas]
+│   │
+│   └─→ Incrementa contador para controlar progreso en paso temporal
+
+CALL inter_loa() [Post-procesamiento de cargas]
+│   │
+│   └─→ Calculo y organiza resultados de cargas aerodinámicas
+
+CALL introut_mng('panelForces') % Prints panels' forces data in TecPlot output
+│     → Escribe fuerzas por panel en archivo de TecPlot
+
+CALL inter_tp4() % Prints panels' forces data in TecPlot output
+│   → Imprime/escanea datos de fuerzas por panel en TecPlot
+
+CALL introut_mng('frcesMomets') % Calculates total forces over each blade...
+│     → Calcula fuerzas totales sobre cada aspa y momentos efectivos sobre rotor
+│     → Escribe en root.FM.dat (Fuerzas y Momentos)
+│     → Opcionalmente: root.GE.dat (Registro del generador - no ahora)
+
+CALL inter_fam() % Calculates total forces over each blade in aerodynamic discretization...
+│   → Calcula fuerzas totales integradas sobre cada aspa
+│   → Mapea resultados a coordenadas de rotor
+
+CALL introut_mng('aerodynTime') % Prints time for aerodynamic calculations in root.AT.dat
+│     → Escribe tiempo transcurrido en cálculos aeroelásticos
+
+CALL inter_aet() % Prints time for aerodynamic calculations in root.AT.dat
+│   → Imprime/escanea datos de tiempo de cálculo en TecPlot
+
+--------------------------------------------------------------------------------
+LÍNEAS 129-133: MANEJO DE PASOS NO AERODINÁMICOS Y AJUSTE DE PASO TEMPORAL
+--------------------------------------------------------------------------------
+
+ELSEIF (ncdlt > 0) % not aero and time for recalculating dtime
+│   │
+│   ├─→ ncdlt = contador de pasos sin recalcular paso temporal
+│   └─→ Si excede límite: ajustar paso temporal
+
+CALL incdlt() % determine dtime (less than critical time step)
+│   │
+│   ├─→ Determina nuevo paso temporal crítico
+│   └─→ Reduce dtime si necesario para mantener estabilidad numérica
+
+--------------------------------------------------------------------------------
+LÍNEAS 134-146: INCREMENTO DE CONTADORES Y ACTUALIZACIÓN RESIDUA
+--------------------------------------------------------------------------------
+
+istep = istep + 1 [Incremento contador de pasos temporales]
+│   │
+│   └─→ Cada iteración del bucle temporal incrementa este contador
+
+%           Nonconservative loading
+IF (aero)
+  resid = resid - loa
+│   │
+│   ├─→ resta cargas aerodinámicas al residuo estructural
+│   └─→ Prepara vector de residuos para siguiente iteración Newton-Raphson
+
+--------------------------------------------------------------------------------
+LÍNEAS 147-148: ACTUALIZACIÓN DE TIEMPO Y CRITERIOS DE TERMINACIÓN
+--------------------------------------------------------------------------------
+
+ttime = ttime + dtime [ACTUALIZACIÓN TIEMPO SIMULADO]
+│   │
+│   ├─→ Acumula tiempo transcurrido en simulación
+│   └─→ ttime representa el tiempo físico actualizado del paso temporal
+
+determines endst criteria [CRITERIOS DE TERMINACIÓN]
+│   │
+│   └─→ Evalúa criterios para detener simulación:
+│       • Número máximo de pasos alcanzado
+│       • Criterios de convergencia global
+│       • Condiciones de parada del usuario
+
+--------------------------------------------------------------------------------
+LÍNEAS 150-162: DUMPING DE ARCHIVOS DE RESTART
+--------------------------------------------------------------------------------
+
+IF (actrst .OR. endst .OR. (istop == -1))
+│   │
+│   ├─→ actrst → Archivo de restart solicitado por usuario
+│   ├─→ endst  → Criterio de terminación alcanzado
+│   └─→ istop == -1 → Solicitud de parada del programa
+
+CALL dumpin() [Datos aerodinámicos generales]
+│   │
+│   └─→ Escribe datos aeroelásticos generales en archivo de restart
+
+IF (aero) % Solo si es problema aerodinámico
+  │   │
+  │   ├─→ CALL dumpin_structuresa() → Estructura aeroelástica
+  │   ├─→ CALL dumpin_arraysa()    → Arrays de datos aeroelásticos
+  │   ├─→ CALL dumpin_aeroout()    → Salida aerodinámica
+  │   ├─→ CALL dumpin_win()        → Interfaz gráfica
+  │   ├─→ %CALL dumpin_gen         → Datos del generador (comentado)
+  │   ├─→ CALL dumpin_inter()      → Interfaz FSI
+  │   ├─→ CALL dumpin_introut()    → Entrada/salida interna
+  │   └─→ %CALL dumpin_mastrnods   → Nodos maestros (comentado)
+
+ENDIF % Fin IF (aero)
+
+CALL dumpin_struout() [Salida estructural]
+│   │
+│   └─→ Escribe datos estructurales en archivo de restart
+
+ENDIF % Fin IF de condiciones de dumping
+
+--------------------------------------------------------------------------------
+LÍNEAS 163-165: ACTUALIZACIÓN DE PARÁMETROS Y VERIFICACIÓN DE SALIDA
+--------------------------------------------------------------------------------
+
+actio = 'NSTRA0' !if EXIT in next line, new strategy has to be done or execution ended!
+│   │
+│   ├─→ Actualiza actio a 'NSTRA0' para próxima iteración
+│   └─→ Indica que se necesita nueva estrategia o finalización
+
+IF (istop /= 0 .OR. endst)
+│   │
+│   ├─→ istop /= 0 → Usuario solicitó parada
+│   └─→ endst     → Criterio de terminación alcanzado
+│
+│   └─→ EXIT [Salir del bucle temporal]
+         │
+         └─→ Finaliza simulación dinámica
+
+ENDIF % Fin IF de salida
+
+--------------------------------------------------------------------------------
+RESUMEN DEL BUCLE TEMPORAL:
+--------------------------------------------------------------------------------
+
+✅ LO QUE OCURRE EN CADA PASO TEMPORAL:
+   1. Verificamos si es nueva etapa aeroelástica (resetear o continuar)
+   2. Actualizamos coordenadas de interfaz FSI (inter_kin)
+   3. Calculamos fuerzas aerodinámicas en Control Points (NLUVLM_Calc)
+   4. Construimos vectores RHS1 y RHS2 (fuerzas externas + estela)
+   5. Visualizamos mallas en TecPlot (opcional)
+   6. Construimos matriz aeroelástica global A_matrix()
+   7. Resolvemos sistema lineal DGESV() para obtener desplazamientos
+   8. Calculamos propiedades de segmentos de estela (Segment_properties)
+   9. Calculamos cargas aerodinámicas totales (Loads)
+   10. Ajustamos paso temporal dinámicamente (DtCalc + incdlt)
+   11. Transportamos estela convectivamente (Convect)
+   12. Post-procesamiento de fuerzas y momentos
+   13. Actualizamos contadores y tiempo simulado
+   14. Si necesario: integración temporal explícita (comentada)
+   15. Dumping de archivos si alcanzamos criterios de parada
+
+⚠️ PUNTO CRÍTICO:
+   Este bucle representa el "CORAZÓN DEL CÁLCULO" donde ocurre todo el
+   acoplamiento fluido-estructura dinámico. Cada iteración es un instante
+   físico real donde la aspa se ha deformado y las cargas han cambiado.
+
+🎯 IMPORTANCIA DE LA RESOLUCIÓN DEL SISTEMA LINEAL:
+   La llamada DGESV() es la parte más crítica porque:
+   • Resuelve el sistema aeroelástico acoplado A*G = RHS
+   • Obtiene desplazamientos estructurales según cargas aerodinámicas
+   • Determina nuevas configuraciones geométricas para siguiente iteración
+   • Sin esta resolución, no hay respuesta estructural a cargas aerodinámicas
+
+================================================================================
+
+(End of file - total 406 lines)
+
+================================================================================
+📊 RESUMEN EJECUTIVO - BUCLE TEMPORAL V720
+================================================================================
+
+🎯 ¿QUÉ OCURRE EN CADA PASO TEMPORAL?
+-----------------------------------------
+Este bucle representa el "CORAZÓN DEL CÁLCULO" aeroelástico donde ocurre todo
+el acoplamiento fluido-estructura dinámico. Cada iteración es un instante físico
+real donde:
+
+1. La aspa se ha deformado según cargas aerodinámicas anteriores
+2. Las nuevas configuraciones geométricas generan nuevos ángulos de ataque
+3. Los coeficientes aerodinámicos CL(α), CD(α) cambian dinámicamente
+4. Las fuerzas aerodinámicas se recalculan con nueva geometría
+5. El ciclo se repite hasta convergencia o fin del paso temporal
+
+🔑 PUNTOS CRÍTICOS IDENTIFICADOS:
+-----------------------------------------
+
+1. DGESV() - LA FUNCIÓN MÁS IMPORTANTE:
+   • Resuelve el sistema aeroelástico acoplado A*G = RHS
+   • Obtiene desplazamientos estructurales (u,v,w) en cada nodo
+   • Sin esta resolución = NO HAY RESPUESTA ESTRUCTURAL
+
+2. Segment_properties() + Convect():
+   • Manejan la estela transportada por el flujo
+   • Representan el historial de vorticidad que afecta fuerzas actuales
+   • Cruciales para calcular fuerzas aerodinámicas correctas
+
+3. Loads():
+   • Integra presiones sobre paneles tras solución DGESV()
+   • Proporciona cargas totales para evaluar desempeño estructural/aerodinámico
+
+4. DtCalc(.TRUE.) + incdlt():
+   • Ajustan paso temporal dinámicamente según convergencia observada
+   • Mantienen estabilidad numérica del cálculo aeroelástico
+
+📁 ARCHIVOS DE SALIDA GENERADOS:
+-----------------------------------------
+• root.AR.dat - Registro aeroelástico (incluye tabla de dtime)
+• root.FM.dat - Fuerzas y momentos totales por aspa
+• root.AT.dat - Tiempo transcurrido en cálculos aeroelásticos
+• TecPlot outputs (.lay, .plt) - Visualización de mallas y fuerzas
+
+⚠️ PUNTO DE ATENCIÓN:
+-----------------------------------------
+La llamada DGESV() es el paso más crítico porque resuelve todo el sistema
+aeroelástico acoplado. Sin una resolución correcta, toda la simulación pierde
+física aeroelástica válida.
+
+================================================================================
+(End of file - total 506 lines)
